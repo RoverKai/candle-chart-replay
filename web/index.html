@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K线复盘 · MT4</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%23131722'/><rect x='7' y='3' width='2' height='10' fill='%2326a69a'/></svg>">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="brand-mark"></span>K线复盘</div>
+
+  <div class="field">
+    <span class="cap">账户</span>
+    <select id="serverSelect" title="MT4 服务器 / 账户"></select>
+  </div>
+
+  <div class="field">
+    <span class="cap">品种</span>
+    <select id="symbolSelect" title="品种"></select>
+  </div>
+
+  <div class="layout-switch" id="layoutSwitch" title="窗格数量">
+    <button data-layout="1" class="active">1</button>
+    <button data-layout="2">2</button>
+    <button data-layout="3">3</button>
+    <button data-layout="4">4</button>
+  </div>
+
+  <div class="grow"></div>
+
+  <button class="ghost" id="btnIndicators">指标 <em>▾</em></button>
+  <button class="ghost" id="btnDrawMenu">画线 <em>▾</em></button>
+  <button class="ghost accent" id="btnTradePanel">交易 <em>▾</em></button>
+</header>
+
+<!-- 指标面板 -->
+<div class="popover" id="indicatorPanel" hidden>
+  <div class="pop-title">主图</div>
+  <label class="chk"><input type="checkbox" id="ind-ma5">   MA 5</label>
+  <label class="chk"><input type="checkbox" id="ind-ma10">  MA 10</label>
+  <label class="chk"><input type="checkbox" id="ind-ma20" checked> MA 20</label>
+  <label class="chk"><input type="checkbox" id="ind-ma60">  MA 60</label>
+  <label class="chk"><input type="checkbox" id="ind-ema20"> EMA 20</label>
+  <label class="chk"><input type="checkbox" id="ind-boll">  布林带 20,2</label>
+  <label class="chk"><input type="checkbox" id="ind-vol" checked> 成交量</label>
+  <div class="pop-title">副图</div>
+  <label class="chk"><input type="radio" name="sub" value="none" checked> 无</label>
+  <label class="chk"><input type="radio" name="sub" value="macd"> MACD 12,26,9</label>
+  <label class="chk"><input type="radio" name="sub" value="rsi">  RSI 14</label>
+</div>
+
+<!-- 画线面板 -->
+<div class="popover" id="drawPanel" hidden>
+  <button class="menu-item" id="btnUndo">撤销 <kbd>Ctrl+Z</kbd></button>
+  <button class="menu-item" id="btnDeleteSel">删除选中 <kbd>Del</kbd></button>
+  <button class="menu-item" id="btnClearAll">清空本窗格画线</button>
+  <button class="menu-item" id="btnExportDraw">导出画线 JSON</button>
+  <button class="menu-item" id="btnImportDraw">导入画线 JSON</button>
+  <input type="file" id="importFile" accept="application/json" hidden>
+</div>
+
+<main class="workspace">
+  <aside class="toolbar" id="toolbar"></aside>
+  <div class="chart-grid" id="chartGrid" data-layout="1"></div>
+
+  <aside class="trade-panel" id="tradePanel" hidden>
+    <div class="tp-head">
+      <span>模拟交易</span>
+      <button class="tp-x" id="btnTradeClose" title="收起">×</button>
+    </div>
+
+    <div class="tp-body">
+      <div class="tp-block">
+        <div class="tp-label">开仓 <em id="tpEntryPrice"></em></div>
+        <div class="tp-buttons">
+          <button class="trade-btn buy" id="btnBuy">买入<small>做多</small></button>
+          <button class="trade-btn sell" id="btnSell">卖出<small>做空</small></button>
+        </div>
+        <div class="tp-grid">
+          <label>手数<input id="lotsInput" type="number" min="0.01" step="0.01" value="0.1"></label>
+          <label>合约<input id="contractInput" type="number" min="1" step="1" value="100"></label>
+          <label>止损<input id="slInput" type="number" step="0.01" placeholder="可选"></label>
+          <label>止盈<input id="tpTargetInput" type="number" step="0.01" placeholder="可选"></label>
+        </div>
+      </div>
+
+      <div class="tp-block" id="posBlock"></div>
+      <div class="tp-block" id="ordersBlock"></div>
+      <div class="tp-block" id="statsBlock"></div>
+
+      <div class="tp-block">
+        <div class="tp-label">成交记录 <span class="muted" id="tradeCount"></span></div>
+        <div class="tp-list" id="tradeList"></div>
+      </div>
+    </div>
+
+    <div class="tp-foot">
+      <button class="ghost sm" id="btnExportTrades">导出 CSV</button>
+      <button class="ghost sm" id="btnClearTrades">清空记录</button>
+    </div>
+  </aside>
+</main>
+
+<footer class="replaybar">
+  <button class="ico" id="btnRewind" title="回到回放起点">⏮</button>
+  <button class="ico" id="btnPrev" title="上一根 (←)">◀</button>
+  <button class="ico play" id="btnPlay" title="播放 / 暂停 (空格)">▶</button>
+  <button class="ico" id="btnNext" title="下一根 (→)">▶|</button>
+  <button class="ico" id="btnEnd" title="跳到最新一根">⏭</button>
+
+  <input type="range" id="cursorSlider" min="0" max="100" value="100" step="1">
+
+  <div class="status">
+    <span id="barPos">— / —</span>
+    <span class="dot-sep">·</span>
+    <span id="barTime">—</span>
+  </div>
+
+  <label class="speed">速度
+    <select id="speedSelect">
+      <option value="1">1×</option>
+      <option value="2">2×</option>
+      <option value="4" selected>4×</option>
+      <option value="8">8×</option>
+      <option value="16">16×</option>
+    </select>
+  </label>
+
+  <input type="date" id="jumpDate" title="跳转到日期">
+  <button class="ghost sm" id="btnJump">跳转</button>
+  <button class="ghost sm" id="btnShowAll">显示全部</button>
+</footer>
+
+<div class="ctx-menu" id="ctxMenu" hidden></div>
+
+<script src="vendor/lightweight-charts.standalone.production.js"></script>
+<script src="js/indicators.js"></script>
+<script src="js/drawings.js"></script>
+<script src="js/trading.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

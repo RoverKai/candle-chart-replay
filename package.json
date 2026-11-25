@@ -1,0 +1,26 @@
+{
+  "name": "kline-replay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本地 K 线复盘工具: 直接读取 MT4 .hst 历史数据, 提供 TradingView 风格的图表、回放与画线",
+  "scripts": {
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File start.ps1",
+    "serve": "powershell -NoProfile -ExecutionPolicy Bypass -File start.ps1 -NoOpen",
+    "verify": "node tools/verify.mjs",
+    "verify:ux": "node tools/verify2.mjs",
+    "verify:trade": "node tools/verify3.mjs",
+    "verify:order": "node tools/verify4.mjs",
+    "verify:sl": "node tools/verify6.mjs",
+    "verify:copy": "node tools/verify7.mjs",
+    "verify:layout": "node tools/verify8.mjs",
+    "verify:future": "node tools/verify9.mjs"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "lightweight-charts": "^5.3.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
+  }
+}

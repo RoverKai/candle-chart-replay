@@ -905,7 +905,8 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 
 /* ------------------------------------------------------------ 多窗格 */
 
-.layout-switch {
+.layout-switch,
+.split-switch {
   display: flex;
   gap: 2px;
   margin-left: 8px;
@@ -915,8 +916,11 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   padding: 2px;
 }
 
-.layout-switch button {
-  width: 24px;
+.split-switch { margin-left: 6px; }
+.split-switch[hidden] { display: none; }
+
+.layout-switch button,
+.split-switch button {
   height: 22px;
   border: 0;
   border-radius: 5px;
@@ -926,12 +930,21 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   font-weight: 600;
   cursor: pointer;
   transition: background .12s, color .12s;
+  white-space: nowrap;
 }
 
-.layout-switch button:hover { background: var(--panel-3); color: var(--text); }
-.layout-switch button.active { background: var(--accent); color: #fff; }
+.layout-switch button { width: 24px; }
+.split-switch button { padding: 0 7px; }
+
+.layout-switch button:hover,
+.split-switch button:hover { background: var(--panel-3); color: var(--text); }
+
+.layout-switch button.active,
+.split-switch button.active { background: var(--accent); color: #fff; }
 
 .chart-grid {
+  --split-ratio: .5;
+  --splitter-size: 8px;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
@@ -942,9 +955,88 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 }
 
 .chart-grid[data-layout="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-.chart-grid[data-layout="2"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
 .chart-grid[data-layout="3"] { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); }
 .chart-grid[data-layout="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+/* 双窗格: 上下 / 左右 + 可拖动分隔线 */
+.chart-grid[data-layout="2"] { gap: 0; }
+
+.chart-grid[data-layout="2"][data-split="col"] {
+  grid-template-columns: 1fr;
+  grid-template-rows:
+    minmax(0, calc((100% - var(--splitter-size)) * var(--split-ratio)))
+    var(--splitter-size)
+    minmax(0, 1fr);
+}
+
+.chart-grid[data-layout="2"][data-split="row"] {
+  grid-template-columns:
+    minmax(0, calc((100% - var(--splitter-size)) * var(--split-ratio)))
+    var(--splitter-size)
+    minmax(0, 1fr);
+  grid-template-rows: 1fr;
+}
+
+.chart-grid[data-layout="2"] > .pane:nth-of-type(1) { grid-column: 1; grid-row: 1; }
+.chart-grid[data-layout="2"][data-split="col"] > .pane:nth-of-type(2) { grid-column: 1; grid-row: 3; }
+.chart-grid[data-layout="2"][data-split="row"] > .pane:nth-of-type(2) { grid-column: 3; grid-row: 1; }
+
+.chart-grid[data-layout="2"] > .pane-resizer { grid-column: 1; grid-row: 2; }
+.chart-grid[data-layout="2"][data-split="row"] > .pane-resizer { grid-column: 2; grid-row: 1; }
+
+.pane-resizer {
+  position: relative;
+  z-index: 8;
+  background: var(--bg);
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.pane-resizer[hidden] { display: none; }
+
+.pane-resizer::before {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: #3a4560;
+  transition: background .12s, box-shadow .12s;
+}
+
+.pane-resizer:hover { background: rgba(41, 98, 255, .05); }
+
+.chart-grid[data-split="row"] .pane-resizer::before {
+  top: 6px;
+  bottom: 6px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.chart-grid[data-split="col"] .pane-resizer { cursor: row-resize; }
+
+.chart-grid[data-split="col"] .pane-resizer::before {
+  left: 6px;
+  right: 6px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.pane-resizer:hover::before,
+.pane-resizer:focus-visible::before,
+.pane-resizer.dragging::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.pane-resizer:focus-visible { background: var(--accent-soft); }
+
+body.resizing { user-select: none; }
+body.resizing-row,
+body.resizing-row * { cursor: col-resize !important; }
+body.resizing-col,
+body.resizing-col * { cursor: row-resize !important; }
 
 .pane {
   display: flex;

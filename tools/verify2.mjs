@@ -106,6 +106,35 @@ await page.check('input[name="sub"][value="rsi"]');
 await page.waitForTimeout(700);
 n = await page.evaluate(() => window.KR.drawLayer.drawings.length);
 check('切副图不丢画线', n === 1, 'drawings=' + n);
+
+// ---- 9. 成交量开关 (隐藏应真的不画, 切周期/重开不能留下旧数据或跳视图)
+await page.uncheck('#ind-vol');
+await page.waitForTimeout(300);
+check('关闭成交量后隐藏', await page.evaluate(() =>
+  window.KR.volume.options().visible === false && window.KR.state.volVisible === false));
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 3));
+await page.waitForTimeout(250);
+check('关闭成交量后推进 K 线仍隐藏',
+  await page.evaluate(() => window.KR.volume.options().visible === false));
+
+await page.click('#periodBar button[data-period="60"]');
+await page.waitForTimeout(1200);
+check('关闭成交量后切周期仍隐藏',
+  await page.evaluate(() => window.KR.volume.options().visible === false));
+const rangeH1 = await range();
+check('切周期后视图正常', !!rangeH1 && rangeH1[0] >= 0 && rangeH1[1] > rangeH1[0],
+  JSON.stringify(rangeH1));
+
+await page.click('#btnIndicators');
+await page.waitForTimeout(150);
+await page.check('#ind-vol');
+await page.waitForTimeout(500);
+check('重新开启成交量后显示', await page.evaluate(() =>
+  window.KR.volume.options().visible === true && window.KR.state.volVisible === true));
+const rangeOn = await range();
+check('重新开启成交量不跳视图', JSON.stringify(rangeOn) === JSON.stringify(rangeH1),
+  `${JSON.stringify(rangeH1)} -> ${JSON.stringify(rangeOn)}`);
+
 await page.keyboard.press('Escape');
 await page.screenshot({ path: 'shots/06-interaction.png' });
 

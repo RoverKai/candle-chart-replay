@@ -35,7 +35,7 @@
     this.bars = [];
     this.lots = 0.1;
     this.contract = 100;
-    this.showHistory = true;
+    this.showHistory = opts.showHistory !== false;
 
     this.position = null;
     this.trades = [];
@@ -71,6 +71,12 @@
   TradeBook.prototype.setContract = function (v) {
     this.contract = Math.max(1, parseFloat(v) || 100);
     try { localStorage.setItem('kline-replay:contract:' + this.symbol, String(this.contract)); } catch (e) { }
+  };
+
+  /** 历史仓位 (已平仓记录) 是否画在图上; 当前持仓不受影响 */
+  TradeBook.prototype.setShowHistory = function (on) {
+    this.showHistory = !!on;
+    this.onUpdate();
   };
 
   TradeBook.prototype.idxOfTime = function (time) {

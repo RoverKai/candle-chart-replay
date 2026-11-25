@@ -122,6 +122,62 @@ await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 45));
 await page.waitForTimeout(600);
 await page.screenshot({ path: 'shots/07-trading.png' });
 
+// ---- 8. 历史仓位开关: 只影响绘制, 不影响记录
+// 截图前光标停在两笔平仓之前, 先推到最新, 否则历史仓位属于"未来"本来就不绘制
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.bars.length - 1));
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  window.__paintHistory = 0;
+  const proto = Object.getPrototypeOf(window.KR.book);
+  if (!proto.__origPaintTrade) {
+    proto.__origPaintTrade = proto._paintTrade;
+    proto._paintTrade = function () {
+      window.__paintHistory++;
+      return proto.__origPaintTrade.apply(this, arguments);
+    };
+  }
+  window.KR.drawLayer.redraw();
+});
+await page.waitForTimeout(300);
+const historyPainted = await page.evaluate(() => window.__paintHistory);
+check('默认绘制历史仓位', historyPainted > 0, 'paint=' + historyPainted);
+
+await page.click('#btnToggleHistory');
+await page.waitForTimeout(250);
+await page.evaluate(() => { window.__paintHistory = 0; window.KR.drawLayer.redraw(); });
+await page.waitForTimeout(300);
+check('关闭历史仓位后不再绘制', await page.evaluate(() => window.__paintHistory) === 0);
+check('开关状态已持久化',
+  await page.evaluate(() => localStorage.getItem('kline-replay:history-visible')) === '0');
+
+await page.click('#btnToggleHistory');
+await page.waitForTimeout(250);
+await page.evaluate(() => { window.__paintHistory = 0; window.KR.drawLayer.redraw(); });
+await page.waitForTimeout(300);
+check('重新开启后恢复绘制', await page.evaluate(() => window.__paintHistory) > 0);
+
+// ---- 9. 清空记录: 图表同步消失, 且立即落盘
+page.once('dialog', (d) => d.accept());
+await page.click('#btnClearTrades');
+await page.waitForTimeout(50);
+const cleared = await page.evaluate(() => {
+  const k = Object.keys(localStorage).find((x) => x.startsWith('kline-replay:trades:'));
+  return {
+    trades: window.KR.book.trades.length,
+    stored: k ? JSON.parse(localStorage.getItem(k)).trades.length : -1
+  };
+});
+check('清空后记录为 0', cleared.trades === 0, JSON.stringify(cleared));
+check('清空立即落盘', cleared.stored === 0, JSON.stringify(cleared));
+await page.evaluate(() => { window.__paintHistory = 0; window.KR.drawLayer.redraw(); });
+await page.waitForTimeout(300);
+check('清空后图上不再绘制历史仓位', await page.evaluate(() => window.__paintHistory) === 0);
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(900);
+check('清空后刷新仍为空', await page.evaluate(() => window.KR.book.trades.length) === 0);
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

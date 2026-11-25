@@ -182,6 +182,74 @@ await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR
 await page.waitForTimeout(1000);
 await page.screenshot({ path: 'shots/17-driver-m1.png' });
 
+// ---- 8. 双窗格方向切换 + 可拖动分隔线
+const paneBoxes = () => page.evaluate(() => {
+  return window.KR.state.panes.map(function (p) {
+    var r = p.els.section.getBoundingClientRect();
+    return {
+      x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom,
+      chartW: p.chart.timeScale().width()
+    };
+  });
+});
+
+check('双窗格显示方向切换', await page.isVisible('#splitSwitch'));
+check('双窗格显示分隔线', await page.isVisible('#paneResizer'));
+check('默认上下分屏', (await page.getAttribute('#chartGrid', 'data-split')) === 'col');
+
+await page.click('#splitSwitch button[data-split="row"]');
+await page.waitForTimeout(500);
+let boxes = await paneBoxes();
+check('切换为左右分屏', (await page.getAttribute('#chartGrid', 'data-split')) === 'row');
+check('左右分屏窗格并排',
+  boxes[0].right <= boxes[1].x && Math.abs(boxes[0].y - boxes[1].y) < 1,
+  `${boxes[0].right} / ${boxes[1].x}`);
+
+const leftW0 = boxes[0].w, rightW0 = boxes[1].w, chartW0 = boxes[0].chartW;
+const divider = await page.locator('#paneResizer').boundingBox();
+await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
+await page.mouse.down();
+await page.mouse.move(divider.x + divider.width / 2 - 160, divider.y + divider.height / 2, { steps: 10 });
+await page.mouse.up();
+await page.waitForTimeout(600);
+boxes = await paneBoxes();
+
+check('向左拖分隔线压缩左窗格', boxes[0].w < leftW0 - 100, `${leftW0} -> ${boxes[0].w}`);
+check('左窗格压缩后右窗格变宽', boxes[1].w > rightW0 + 100, `${rightW0} -> ${boxes[1].w}`);
+check('图表随分隔线重排', boxes[0].chartW < chartW0 - 80, `${chartW0} -> ${boxes[0].chartW}`);
+check('左右分屏仍保持并排', boxes[0].right <= boxes[1].x, `${boxes[0].right} / ${boxes[1].x}`);
+await page.screenshot({ path: 'shots/18-split-row.png' });
+
+await page.click('#splitSwitch button[data-split="col"]');
+await page.waitForTimeout(500);
+boxes = await paneBoxes();
+check('切回上下分屏',
+  (await page.getAttribute('#chartGrid', 'data-split')) === 'col' && boxes[0].bottom <= boxes[1].y,
+  `${boxes[0].bottom} / ${boxes[1].y}`);
+
+const topH0 = boxes[0].h, bottomH0 = boxes[1].h;
+const divider2 = await page.locator('#paneResizer').boundingBox();
+await page.mouse.move(divider2.x + divider2.width / 2, divider2.y + divider2.height / 2);
+await page.mouse.down();
+await page.mouse.move(divider2.x + divider2.width / 2, divider2.y + divider2.height / 2 - 80, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(600);
+boxes = await paneBoxes();
+check('上下分屏拖动分隔线同样生效',
+  boxes[0].h < topH0 - 40 && boxes[1].h > bottomH0 + 40,
+  `${topH0.toFixed(0)}/${bottomH0.toFixed(0)} -> ${boxes[0].h.toFixed(0)}/${boxes[1].h.toFixed(0)}`);
+
+await page.dblclick('#paneResizer');
+await page.waitForTimeout(400);
+boxes = await paneBoxes();
+check('双击分隔线恢复 50/50', Math.abs(boxes[0].h - boxes[1].h) < 4,
+  `${boxes[0].h.toFixed(0)} / ${boxes[1].h.toFixed(0)}`);
+
+await page.click('#layoutSwitch button[data-layout="1"]');
+await page.waitForTimeout(500);
+check('单窗格隐藏方向切换和分隔线',
+  !(await page.isVisible('#splitSwitch')) && !(await page.isVisible('#paneResizer')));
+
 console.log('通过:');
 ok.forEach((s2) => console.log('  ✓ ' + s2));
 if (bad.length) { console.log('失败:'); bad.forEach((s2) => console.log('  ✗ ' + s2)); }

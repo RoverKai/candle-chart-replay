@@ -29,6 +29,11 @@
     <button data-layout="4">4</button>
   </div>
 
+  <div class="split-switch" id="splitSwitch" title="双窗格方向" hidden>
+    <button data-split="col" class="active" title="上下分屏">上下</button>
+    <button data-split="row" title="左右分屏">左右</button>
+  </div>
+
   <div class="grow"></div>
 
   <button class="ghost" id="btnIndicators">指标 <em>▾</em></button>
@@ -64,7 +69,11 @@
 
 <main class="workspace">
   <aside class="toolbar" id="toolbar"></aside>
-  <div class="chart-grid" id="chartGrid" data-layout="1"></div>
+  <div class="chart-grid" id="chartGrid" data-layout="1">
+    <div class="pane-resizer" id="paneResizer" role="separator" tabindex="0"
+         aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+         aria-label="上下窗格分隔线" title="拖动调整窗格大小，双击恢复 50/50" hidden></div>
+  </div>
 
   <aside class="trade-panel" id="tradePanel" hidden>
     <div class="tp-head">
@@ -98,6 +107,8 @@
     </div>
 
     <div class="tp-foot">
+      <button class="ghost sm on" id="btnToggleHistory" aria-pressed="true"
+              title="点击隐藏图表上的历史仓位">历史仓位</button>
       <button class="ghost sm" id="btnExportTrades">导出 CSV</button>
       <button class="ghost sm" id="btnClearTrades">清空记录</button>
     </div>

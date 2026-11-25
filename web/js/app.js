@@ -16,6 +16,8 @@
     240: 'H4', 1440: 'D1', 10080: 'W1', 43200: 'MN'
   };
   var PERIOD_ORDER = [1, 5, 15, 30, 60, 240, 1440, 10080, 43200];
+  var SPLITTER_SIZE = 8;        // 与 CSS --splitter-size 保持一致
+  var MIN_PANE_SIZE = 120;
 
   var MA_DEF = [
     { key: 'ma5', color: '#f6c85f', calc: function (b) { return Indicators.sma(b, 5); }, width: 1 },
@@ -62,10 +64,14 @@
     panes: [],
     activeIndex: 0,
     layout: 1,
+    splitDir: 'col',      // 双窗格: col=上下, row=左右
+    splitRatio: 0.5,      // 第一窗格占比
     playing: false,
     timer: null,
     speed: 4,
     subMode: 'none',
+    volVisible: true,     // 主图成交量柱
+    showHistory: true,    // 图表上是否绘制已平仓的历史仓位
     startTime: 0          // 回放起点 (时间戳, 跨窗格共用)
   };
 
@@ -200,11 +206,13 @@
       wickUpColor: COLORS.up, wickDownColor: COLORS.down,
       priceLineColor: '#5d6b82', lastValueVisible: true
     });
-    candle.priceScale('right').applyOptions({ scaleMargins: { top: 0.06, bottom: 0.24 } });
+    candle.priceScale('right').applyOptions({
+      scaleMargins: { top: 0.06, bottom: state.volVisible ? 0.24 : 0.06 }
+    });
 
     var volume = chart.addSeries(LWC.HistogramSeries, {
       priceScaleId: 'vol', priceFormat: { type: 'volume' },
-      priceLineVisible: false, lastValueVisible: false
+      priceLineVisible: false, lastValueVisible: false, visible: state.volVisible
     }, 0);
     volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
 
@@ -224,6 +232,7 @@
     });
 
     pane.book = new TradeBook({
+      showHistory: state.showHistory,
       getBars: function () { return pane.bars; },
       getCursor: function () { return pane.cursor; },
       getPlotWidth: function () { try { return chart.timeScale().width(); } catch (e) { return 0; } },
@@ -274,6 +283,7 @@
   }
 
   function destroyPane(pane) {
+    cancelTradeSave(pane);
     try { pane.chart.remove(); } catch (e) { /* ignore */ }
     if (pane.els.section.parentNode) pane.els.section.parentNode.removeChild(pane.els.section);
   }
@@ -386,8 +396,19 @@
     };
   }
 
+  function applyVolumeVisibility(pane) {
+    if (!pane || !pane.volume) return;
+    pane.volume.applyOptions({ visible: state.volVisible });
+    // 关闭成交量后把底部腾出来给 K 线, 打开时恢复 24% 的副图空间
+    pane.candle.priceScale('right').applyOptions({
+      scaleMargins: { top: 0.06, bottom: state.volVisible ? 0.24 : 0.06 }
+    });
+    if (pane.drawLayer) pane.drawLayer.requestRedraw();
+  }
+
   function paneBuildSeries(pane) {
     var chart = pane.chart;
+    applyVolumeVisibility(pane);
     Object.keys(pane.overlays).forEach(function (k) { try { chart.removeSeries(pane.overlays[k]); } catch (e) { } });
     Object.keys(pane.subSeries).forEach(function (k) { try { chart.removeSeries(pane.subSeries[k]); } catch (e) { } });
     pane.overlays = {};
@@ -447,6 +468,7 @@
     if (full) {
       var slice = pane.bars.slice(0, n);
       pane.candle.setData(slice);
+      // 即使成交量隐藏也要同步数据: 否则切周期后 series 还留着旧周期的时间轴, 重新打开会跳视图
       pane.volume.setData(slice.map(function (b) {
         return { time: b.time, value: b.volume, color: b.close >= b.open ? 'rgba(38,166,154,.42)' : 'rgba(239,83,80,.42)' };
       }));
@@ -718,11 +740,132 @@
 
   /* ============================================================ 布局 */
 
+  function applySplit() {
+    var grid = $('chartGrid');
+    var rz = $('paneResizer');
+    var dual = state.layout === 2;
+    grid.dataset.split = state.splitDir;
+    grid.style.setProperty('--split-ratio', state.splitRatio.toFixed(5));
+    $('splitSwitch').hidden = !dual;
+    rz.hidden = !dual;
+    var btns = $('splitSwitch').querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].dataset.split === state.splitDir);
+    }
+    rz.setAttribute('aria-orientation', state.splitDir === 'row' ? 'vertical' : 'horizontal');
+    rz.setAttribute('aria-label', state.splitDir === 'row' ? '左右窗格分隔线' : '上下窗格分隔线');
+    rz.setAttribute('aria-valuenow', String(Math.round(state.splitRatio * 100)));
+  }
+
+  function setSplitDir(dir) {
+    if (dir !== 'row' && dir !== 'col') return;
+    state.splitDir = dir;
+    applySplit();
+    requestAnimationFrame(resizePanes);
+  }
+
+  function setSplitRatio(ratio) {
+    state.splitRatio = Math.max(0, Math.min(1, ratio));
+    $('chartGrid').style.setProperty('--split-ratio', state.splitRatio.toFixed(5));
+    $('paneResizer').setAttribute('aria-valuenow', String(Math.round(state.splitRatio * 100)));
+  }
+
+  function resizePanes() {
+    state.panes.forEach(function (p) { if (p.drawLayer) p.drawLayer.resize(); });
+  }
+
+  /** 双窗格可用区域 (不含 padding 和中间分隔线) */
+  function gridContentSize(dir) {
+    var grid = $('chartGrid');
+    var cs = window.getComputedStyle(grid);
+    var total = dir === 'row' ? grid.clientWidth : grid.clientHeight;
+    total -= dir === 'row'
+      ? parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+      : parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    return Math.max(0, total - SPLITTER_SIZE);
+  }
+
+  function clampSplitSize(size, total) {
+    var min = Math.min(MIN_PANE_SIZE, total / 2);
+    return Math.max(min, Math.min(total - min, size));
+  }
+
+  function initSplitResizer() {
+    var rz = $('paneResizer');
+    var drag = null;
+
+    function finishDrag(e) {
+      if (!drag) return;
+      drag = null;
+      rz.classList.remove('dragging');
+      document.body.classList.remove('resizing', 'resizing-row', 'resizing-col');
+      try { rz.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    }
+
+    rz.addEventListener('pointerdown', function (e) {
+      if (state.layout !== 2 || !state.panes[0]) return;
+      var dir = state.splitDir;
+      var rect = state.panes[0].els.section.getBoundingClientRect();
+      var total = gridContentSize(dir);
+      if (total < 2) return;
+
+      drag = {
+        dir: dir,
+        start: dir === 'row' ? e.clientX : e.clientY,
+        size: dir === 'row' ? rect.width : rect.height,
+        total: total
+      };
+      rz.focus({ preventScroll: true });
+      rz.setPointerCapture(e.pointerId);
+      rz.classList.add('dragging');
+      document.body.classList.add('resizing', dir === 'row' ? 'resizing-row' : 'resizing-col');
+      e.preventDefault();
+    });
+
+    rz.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var pos = drag.dir === 'row' ? e.clientX : e.clientY;
+      var size = clampSplitSize(drag.size + pos - drag.start, drag.total);
+      setSplitRatio(size / drag.total);
+    });
+
+    rz.addEventListener('pointerup', finishDrag);
+    rz.addEventListener('pointercancel', finishDrag);
+
+    rz.addEventListener('dblclick', function () {
+      setSplitRatio(0.5);
+      requestAnimationFrame(resizePanes);
+    });
+
+    rz.addEventListener('keydown', function (e) {
+      if (state.layout !== 2) return;
+      var dir = state.splitDir;
+      var delta = 0;
+      if (dir === 'row') {
+        if (e.key === 'ArrowLeft') delta = -1;
+        else if (e.key === 'ArrowRight') delta = 1;
+      } else {
+        if (e.key === 'ArrowUp') delta = -1;
+        else if (e.key === 'ArrowDown') delta = 1;
+      }
+      if (!delta) return;
+
+      e.preventDefault();
+      var total = gridContentSize(dir);
+      if (total < 2) return;
+      var step = Math.max(8, total * 0.02);
+      var size = clampSplitSize(state.splitRatio * total + delta * step, total);
+      setSplitRatio(size / total);
+      requestAnimationFrame(resizePanes);
+    });
+  }
+
   function setLayout(n) {
     if (state.layout === n && state.panes.length === n) return;
     var keepT = cutoffTime();          // 先记住当前时间, 新窗格加载后再对齐
     state.layout = n;
     $('chartGrid').dataset.layout = String(n);
+    applySplit();
     var btns = $('layoutSwitch').querySelectorAll('button');
     for (var i = 0; i < btns.length; i++) {
       btns[i].classList.toggle('active', parseInt(btns[i].dataset.layout, 10) === n);
@@ -900,7 +1043,7 @@
     pane.drawLayer.setDrawings(list);
   }
 
-  var tradeSaveTimer = null;
+  var tradeSaveTimers = {};
   var tradeSigMap = {};
 
   function tradeSig(pane) {
@@ -912,18 +1055,34 @@
       b.orders.map(function (o) { return o.id; }).join(',');
   }
 
-  function saveTrades(pane) {
-    if (!pane.book || !pane.tradesReady) return;
-    if (tradeSaveTimer) clearTimeout(tradeSaveTimer);
-    tradeSaveTimer = setTimeout(function () {
-      var sig = tradeSig(pane);
-      if (sig === tradeSigMap[pane.index]) return;
-      tradeSigMap[pane.index] = sig;
-      try { localStorage.setItem(tradeKey(pane), JSON.stringify(pane.book.serialize())); } catch (e) { }
+  function cancelTradeSave(pane) {
+    if (!tradeSaveTimers[pane.index]) return;
+    clearTimeout(tradeSaveTimers[pane.index]);
+    delete tradeSaveTimers[pane.index];
+  }
+
+  function writeTrades(pane) {
+    if (!pane.book) return;
+    tradeSigMap[pane.index] = tradeSig(pane);
+    try { localStorage.setItem(tradeKey(pane), JSON.stringify(pane.book.serialize())); } catch (e) { }
+  }
+
+  /** immediate=true 用于清空记录等不可丢的操作, 跳过防抖直接落盘 */
+  function saveTrades(pane, immediate) {
+    if (!pane.book) return;
+    if (!pane.tradesReady && !immediate) return;
+    cancelTradeSave(pane);
+    if (immediate) { writeTrades(pane); return; }
+    tradeSaveTimers[pane.index] = setTimeout(function () {
+      delete tradeSaveTimers[pane.index];
+      if (!pane.book || !pane.tradesReady) return;
+      if (tradeSig(pane) === tradeSigMap[pane.index]) return;
+      writeTrades(pane);
     }, 150);
   }
 
   function loadTrades(pane) {
+    cancelTradeSave(pane);
     var raw = null;
     try { raw = localStorage.getItem(tradeKey(pane)); } catch (e) { }
     var data = null;
@@ -931,6 +1090,11 @@
     pane.book.restore(data);
     pane.tradesReady = true;
     tradeSigMap[pane.index] = tradeSig(pane);
+  }
+
+  /** 默认显示历史仓位; 用户关掉后跨刷新记住 */
+  function readHistoryVisible() {
+    try { return localStorage.getItem('kline-replay:history-visible') !== '0'; } catch (e) { return true; }
   }
 
   var posSaveTimer = null;
@@ -1056,6 +1220,24 @@
   }
 
   /* ============================================================ 交易面板 */
+
+  function syncHistoryButton() {
+    var btn = $('btnToggleHistory');
+    if (!btn) return;
+    btn.classList.toggle('on', state.showHistory);
+    btn.setAttribute('aria-pressed', state.showHistory ? 'true' : 'false');
+    btn.title = state.showHistory ? '点击隐藏图表上的历史仓位' : '点击显示图表上的历史仓位';
+  }
+
+  function setShowHistory(on) {
+    state.showHistory = !!on;
+    try { localStorage.setItem('kline-replay:history-visible', state.showHistory ? '1' : '0'); } catch (e) { }
+    state.panes.forEach(function (p) {
+      if (p.book) p.book.setShowHistory(state.showHistory);
+    });
+    syncHistoryButton();
+    hint(state.showHistory ? '已显示历史仓位' : '已隐藏历史仓位');
+  }
 
   function renderTradePanel() {
     var pane = activePane();
@@ -1316,6 +1498,13 @@
       setLayout(parseInt(b.dataset.layout, 10));
     });
 
+    $('splitSwitch').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      setSplitDir(b.dataset.split);
+    });
+    initSplitResizer();
+
     $('btnPrev').addEventListener('click', function () { step(-1); });
     $('btnNext').addEventListener('click', function () { step(1); });
     $('btnPlay').addEventListener('click', togglePlay);
@@ -1349,6 +1538,10 @@
 
     ['ma5', 'ma10', 'ma20', 'ma60', 'ema20', 'boll'].forEach(function (k) {
       $('ind-' + k).addEventListener('change', rebuildIndicatorSeries);
+    });
+    $('ind-vol').addEventListener('change', function () {
+      state.volVisible = this.checked;
+      state.panes.forEach(applyVolumeVisibility);
     });
     document.querySelectorAll('input[name="sub"]').forEach(function (el) {
       el.addEventListener('change', function () {
@@ -1398,6 +1591,9 @@
       if (p && p.book) { p.book.setContract(parseFloat(this.value)); this.value = p.book.contract; }
     });
 
+    $('btnToggleHistory').addEventListener('click', function () {
+      setShowHistory(!state.showHistory);
+    });
     $('btnExportTrades').addEventListener('click', exportTrades);
     $('btnClearTrades').addEventListener('click', function () {
       var p = activePane();
@@ -1405,8 +1601,7 @@
       if (!p.book.trades.length && !p.book.position) return;
       if (confirm('清空当前窗格的所有交易记录和持仓？')) {
         p.book.clear();
-        tradeSigMap[p.index] = 'cleared';
-        saveTrades(p);
+        saveTrades(p, true);          // 清空立即落盘, 避免刷新/切周期后旧记录复活
         if (p.drawLayer) p.drawLayer.requestRedraw();
       }
     });
@@ -1541,8 +1736,11 @@
   /* ============================================================ 启动 */
 
   function boot() {
+    state.showHistory = readHistoryVisible();
     buildToolbar();
     bindUI();
+    syncHistoryButton();
+    applySplit();
 
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideMenu(); });
     document.addEventListener('mousedown', function (e) {

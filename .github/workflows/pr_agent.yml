@@ -1,0 +1,55 @@
+# PR-Agent：自动生成 PR 描述 + 自动代码评审 + 评论里的 /describe /review /improve /ask
+#
+# 模型与 key 都写在下面的 env 里，不要挪进 .pr_agent.toml：
+# 仓库配置是从「配置分支」读的，首个带 .pr_agent.toml 的 PR 上读不到它。
+#
+# 需要的仓库 Secret：DEEPSEEK_API_KEY
+#   Settings > Secrets and variables > Actions > New repository secret
+
+name: PR Agent
+
+on:
+  pull_request:
+    # synchronize = 每次 push 都重新评审（更贵，但改动不会漏评）
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+
+jobs:
+  pr_agent_job:
+    name: PR-Agent
+    # 跳过 bot 自己发的评论，避免 PR-Agent 回复自己造成死循环
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read         # 读取 PR 与文件
+      issues: write          # 回复 issue_comment 里的斜杠命令
+      pull-requests: write   # 评论、行内建议、标签
+    # 同一 PR 的新 push 取消上一轮，省 token
+    concurrency:
+      group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: true
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        # 固定到 v0.50.0 的 commit SHA，不用 @main
+        uses: the-pr-agent/pr-agent@e673a02076ce09a4726c3d0c3cc85780e59ca52b
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 必须用 provider 原生变量名：PR-Agent 启动时的 key 检查读的是这个
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          config.model: "deepseek/deepseek-flash"
+          config.fallback_models: '[]'
+          # 该模型实际 1M 上下文；这里按成本只给 128K 输入预算，超出的大 PR 会自动分块
+          config.custom_model_max_tokens: "131072"
+          # 推理型模型默认 120s 太紧，大 diff 会超时
+          config.ai_timeout: "300"
+          config.response_language: "zh-CN"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_review: "true"
+          # auto_improve 会连带跑一次 review，保持 false 避免一次 push 花双份钱
+          github_action_config.auto_improve: "false"
+          # 保持 false：true 会切到 push_commands，自动 describe/review 反而不跑
+          github_action_config.handle_push_trigger: "false"
+          # 这里的 synchronize 决定「每次 push 都评审」
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'

@@ -7,21 +7,33 @@
 
 ## 快速开始
 
-双击 **`启动.bat`**。
+**Windows**：双击 **`scripts\启动.bat`**（或在仓库根目录执行 `npm start`）。
 
-- 它会转交 `start.ps1`，自动寻找可用的 Python 3（`py -3` → `python` → 常见安装路径）
+- 它会转交 `scripts/start.ps1`，自动寻找可用的 Python 3（`py -3` → `python` → 常见安装路径）
 - 已经有一个实例在跑时不会重复启动，**直接打开浏览器**
 - 浏览器打开 <http://127.0.0.1:8766/>；停止服务：`Ctrl+C` 或关掉黑窗口
 
-> 只依赖 Python 3.9+，无需安装任何第三方包；前端图表库已内置在 `web/vendor/`。
-
-命令行等价写法：
+Windows 命令行等价写法：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File start.ps1           # 启动并打开浏览器
-powershell -ExecutionPolicy Bypass -File start.ps1 -NoOpen   # 只启动服务
-powershell -ExecutionPolicy Bypass -File start.ps1 -Port 9000
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1           # 启动并打开浏览器
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1 -NoOpen   # 只启动服务
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1 -Port 9000
 ```
+
+**Linux**：在仓库根目录执行：
+
+```bash
+./scripts/start.sh              # 启动并打开浏览器
+./scripts/start.sh --no-open    # 只启动服务
+./scripts/start.sh --port 9000  # 换端口
+```
+
+- 按 `PYTHON_BIN` → `python3` → `python` → 常见安装路径的顺序寻找 Python 3.9+
+- 已经有一个实例在跑时直接打开浏览器；端口被别的程序占用会报错，不会静默换端口
+- 首次使用如果提示没有执行权限：`chmod +x scripts/start.sh`
+
+> 只依赖 Python 3.9+，无需安装任何第三方包；前端图表库已内置在 `web/vendor/`。
 
 ## 功能
 
@@ -51,6 +63,7 @@ powershell -ExecutionPolicy Bypass -File start.ps1 -Port 9000
 
 - 推进 / 播放由**周期最小**的窗格驱动：M5 + M1 时，按一次 `→` 是 **1 根 M1**
 - M5 窗格不会跟着跳，它停在当前那根，直到 M1 走完 5 根才进入下一根
+- 高周期 K 线只在覆盖的低周期 K 线全部走完后出现：M1 到 `12:04`（第 5 根）时 M5 的 `12:00` 那根才画出来，`12:00 ~ 12:03` 期间 M5 仍停在 `11:55`，不会提前暴露未来数据
 - 进度条、日期跳转、`⏮` / `⏭`、显示全部，都作用于这条共享时间轴（底部显示的根数是**最小周期**的）
 - 4 个窗格时同理，永远按其中最小的周期推进
 
@@ -190,8 +203,16 @@ powershell -ExecutionPolicy Bypass -File start.ps1 -Port 9000
 
 ```
 1. 环境变量 MT4_HISTORY
-2. C:\Program Files (x86)\MetaTrader 4\history   ← 本机装了 MT4 就用这个
+2. C:\Program Files (x86)\MetaTrader 4\history   ← Windows 装了 MT4 就用这个
 3. <仓库>/data/history                            ← 没有 MT4 时用仓库自带的样例数据
+```
+
+Linux 上没有默认的 Windows 路径，一般直接使用仓库自带的样例数据；
+如果 MT4 跑在 Wine 里，把 `MT4_HISTORY` 指过去即可：
+
+```bash
+export MT4_HISTORY="$HOME/.wine/drive_c/Program Files (x86)/MetaTrader 4/history"
+./scripts/start.sh
 ```
 
 仓库里 `data/history/` 带了一份 **XAUUSD 等品种的样例数据**（约 28 MB，来自 TradeMaxGlobal
@@ -212,8 +233,10 @@ python server/app.py --port 8766
 
 ```
 kline-replay/
-├─ 启动.bat                一键启动
-├─ start.ps1               启动器（找 Python / 开浏览器）
+├─ scripts/
+│  ├─ 启动.bat             Windows 一键启动
+│  ├─ start.ps1            Windows 启动器（找 Python / 开浏览器）
+│  └─ start.sh             Linux 启动器
 ├─ server/
 │  ├─ app.py               HTTP 服务 + JSON API
 │  └─ hst.py               .hst 二进制解析
@@ -259,7 +282,7 @@ npm run verify:future # 8 项断言（回放到锚点之前画线不消失、像
 
 ## 故障排查
 
-### 双击 `启动.bat` 后弹出「你要用什么应用打开 .py 文件」
+### 双击 `scripts\启动.bat` 后弹出「你要用什么应用打开 .py 文件」
 
 这是启动器没能找到能用的 Python，Windows 于是把 `.py` 当普通文件去问你要用哪个程序打开。
 两个常见原因，现在都已规避：
@@ -275,19 +298,32 @@ npm run verify:future # 8 项断言（回放到锚点之前画线不消失、像
 
 ### 想指定 Python
 
-在 `start.ps1` 的 `$common` 数组里加上你的路径，或者直接命令行：
+在 `scripts/start.ps1` 的 `$common` 数组里加上你的路径，或者直接命令行：
 
 ```powershell
 & "D:\Conda\python.exe" server\app.py --port 8766 --open
 ```
 
+Linux 用 `PYTHON_BIN` 指定：
+
+```bash
+PYTHON_BIN=/usr/bin/python3.12 ./scripts/start.sh
+```
+
 ### 端口被占用
 
-启动器会先探测 8766，已经在跑就直接打开浏览器；真要换端口用 `-Port 9000`。
+启动器会先探测 8766，已经在跑就直接打开浏览器；真要换端口用 `-Port 9000`（Windows）
+或 `--port 9000`（Linux）。Linux 下如果 8766 被其他程序占用，`start.sh`
+会直接报错而不是静默换端口，避免提示的地址和实际监听端口不一致。
 
 ### 黑窗口一闪就没了
 
-用命令行跑一遍 `powershell -ExecutionPolicy Bypass -File start.ps1`，就能看到完整报错。
+用命令行跑一遍 `powershell -ExecutionPolicy Bypass -File scripts\start.ps1`，就能看到完整报错。
+
+### Linux 提示找不到 Python 3
+
+安装 Python 3.9+（Debian/Ubuntu: `sudo apt install python3`），或者用
+`PYTHON_BIN=/path/to/python3 ./scripts/start.sh` 指定解释器。启动器会列出它排除了哪些路径。
 
 ## 已知限制
 

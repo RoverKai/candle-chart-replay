@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 
-const browser = await chromium.launch({ channel: 'msedge' });
+const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge' });
 const page = await browser.newPage({ viewport: { width: 1680, height: 950 } });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -36,6 +36,26 @@ const snap = () => page.evaluate(() => ({
   })
 }));
 
+// 每个窗格只能显示「结束时间 <= 驱动窗格当前 K 线结束时间」的 K 线
+const alignment = () => page.evaluate(() => {
+  var ps = window.KR.state.panes.filter(function (p) { return p.bars.length; });
+  var d = ps.slice().sort(function (a, b) { return a.period - b.period; })[0];
+  if (!d || d.cursor < 0 || !d.bars[d.cursor]) return { ok: false, bad: ['没有驱动窗格'] };
+  var end = d.bars[d.cursor].time + d.period * 60;
+  var bad = [];
+  ps.forEach(function (p) {
+    if (p.cursor < 0) {
+      var first = p.bars[0];
+      if (first && first.time + p.period * 60 <= end) bad.push('M' + p.period + ' 漏画已完成 K 线');
+      return;
+    }
+    var cur = p.bars[p.cursor], nxt = p.bars[p.cursor + 1];
+    if (!cur || cur.time + p.period * 60 > end) bad.push('M' + p.period + ' 提前显示未完成 K 线');
+    if (nxt && nxt.time + p.period * 60 <= end) bad.push('M' + p.period + ' 漏画已完成 K 线');
+  });
+  return { ok: !bad.length, bad: bad };
+});
+
 // ---- 1. 单窗格基线
 let s = await snap();
 check('初始只有 1 个窗格', (await page.locator('.pane').count()) === 1, `M${s.panes[0].period}`);
@@ -55,7 +75,8 @@ await page.evaluate(() => window.KR.api.setCursor(window.KR.state.panes[1].curso
 await page.waitForTimeout(600);
 
 const before = await snap();
-check('回退后所有窗格对齐同一时刻', before.panes.every((p) => p.time <= before.driver.time && (p.next === null || p.next > before.driver.time)) || true);
+const beforeAlign = await alignment();
+check('回退后所有窗格只显示已收完的 K 线', beforeAlign.ok, beforeAlign.bad.join(' | '));
 
 // ---- 3. 核心: 点一次「下一根」只推进 M1 一根
 await page.click('#btnNext');
@@ -82,17 +103,52 @@ check('同期 M5 只前进 1~2 根',
   after5.panes[0].cursor - base.panes[0].cursor >= 1 && after5.panes[0].cursor - base.panes[0].cursor <= 2,
   `${base.panes[0].cursor} -> ${after5.panes[0].cursor}`);
 
-// ---- 5. 所有窗格始终对齐驱动时刻
-const aligned = await page.evaluate(() => {
-  var ps = window.KR.state.panes.filter(function (p) { return p.bars.length; });
-  var d = ps.slice().sort(function (a, b) { return a.period - b.period; })[0];
-  var t = d.bars[d.cursor].time;
-  return ps.every(function (p) {
-    var cur = p.bars[p.cursor], nxt = p.bars[p.cursor + 1];
-    return cur && cur.time <= t && (!nxt || nxt.time > t);
-  });
+// ---- 5. 所有窗格只显示已收完的 K 线
+const aligned = await alignment();
+check('所有窗格只显示已收完的 K 线', aligned.ok, aligned.bad.join(' | '));
+
+// ---- 5b. M1 走完 5 根之前, M5 不能提前出现新 K 线
+const boundary = await page.evaluate(() => {
+  var p = window.KR.state.panes.filter(function (x) { return x.period === 1; })[0];
+  for (var i = p.bars.length - 20; i > 10; i--) {
+    if (p.bars[i].time % 300 === 0) return { index: i, time: p.bars[i].time };
+  }
+  return null;
 });
-check('所有窗格对齐到同一时刻', aligned);
+check('找到 M1/M5 周期边界', !!boundary);
+if (boundary) {
+  await page.evaluate((idx) => window.KR.api.setCursor(idx, { force: true }), boundary.index);
+  await page.waitForTimeout(400);
+
+  const m5Of = (x) => x.panes.filter((p) => p.period === 5)[0];
+  const m5Start = m5Of(await snap());
+  check('边界处 M5 停在上一根已收完的 K 线', m5Start.time === boundary.time - 300,
+    `M5=${m5Start.time} / 边界=${boundary.time}`);
+
+  let early = false;
+  for (let i = 1; i <= 3; i++) {
+    await page.click('#btnNext');
+    await page.waitForTimeout(180);
+    const cur = m5Of(await snap());
+    if (cur.cursor !== m5Start.cursor) early = true;
+  }
+  check('M1 走 1~3 根时 M5 不提前出现', !early,
+    `M5 cursor ${m5Start.cursor} -> ${m5Of(await snap()).cursor}`);
+
+  await page.click('#btnNext');   // M1 第 5 根, 12:04
+  await page.waitForTimeout(250);
+  const at4 = await snap();
+  const m5At4 = m5Of(at4);
+  check('M1 走完第 5 根后 M5 才出现',
+    at4.driver.time === boundary.time + 240 && m5At4.time === boundary.time,
+    `M1=${at4.driver.time} / M5=${m5At4.time}`);
+
+  await page.click('#btnNext');   // 12:05, 下一根 M5 还没收完
+  await page.waitForTimeout(250);
+  const m5At5 = m5Of(await snap());
+  check('M1 再走一根, M5 仍停在已收完的 K 线', m5At5.cursor === m5At4.cursor,
+    `M5 cursor ${m5At4.cursor} -> ${m5At5.cursor}`);
+}
 
 // ---- 6. 加窗格后仍保持时刻
 const tBefore = (await snap()).driver.time;

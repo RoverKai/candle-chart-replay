@@ -507,7 +507,7 @@
 
     var prev = pane.cursor;
     var delta = Math.abs(idx - prev);
-    if (idx > prev && idx - prev <= 12) {
+    if (prev >= 0 && idx > prev && idx - prev <= 12) {
       for (var i = prev + 1; i <= idx; i++) {
         pane.cursor = i;
         paneApplyAll(pane, false);
@@ -515,7 +515,7 @@
     } else {
       // 小幅移动保留视口; 大跨度 (换周期/跳转/回放定位) 必须以光标为锚重新取景,
       // 否则会沿用旧数据长度下的索引区间, 视图跑到空白区
-      var r = delta <= 12 ? pane.chart.timeScale().getVisibleLogicalRange() : null;
+      var r = prev >= 0 && delta <= 12 ? pane.chart.timeScale().getVisibleLogicalRange() : null;
       pane.cursor = idx;
       paneApplyAll(pane, true);
       if (r) { try { pane.chart.timeScale().setVisibleLogicalRange(r); } catch (e) { } }
@@ -529,8 +529,25 @@
 
   function paneSetByTime(pane, t) {
     if (!pane.bars.length || !t) return;
-    var idx = lastIndexAtOrBefore(pane.bars, t);
-    if (idx < 0) idx = 0;
+    // 高周期 K 线必须等驱动窗格走完它覆盖的全部低周期 K 线后才能出现:
+    // M1 走到 12:04 时 5min(12:00) 才收完, 之前只能显示上一根 11:55。
+    var d = driverPane();
+    var lag = d && pane.period > d.period ? (pane.period - d.period) * 60 : 0;
+    var idx = lastIndexAtOrBefore(pane.bars, t - lag);
+
+    if (idx < 0) {
+      // 驱动窗格还没走完该高周期窗格的第一根 K 线 -> 该窗格暂时无可见 K 线
+      if (pane.cursor !== -1) {
+        var prev = pane.cursor;
+        pane.cursor = -1;
+        paneApplyAll(pane, true);
+        paneFocus(pane);
+        if (pane.book) pane.book.onCursorMove(prev, -1);
+        paneUpdateBadge(pane);
+        paneUpdateLegendLast(pane);
+      }
+      return;
+    }
     paneMoveTo(pane, idx);
   }
 
@@ -617,7 +634,8 @@
 
   function paneUpdateBadge(pane) {
     if (!pane.els.badge) return;
-    pane.els.badge.hidden = !(pane.bars.length && pane.cursor < pane.bars.length - 1);
+    pane.els.badge.hidden = atCutoffEnd() ||
+      !(pane.bars.length && pane.cursor >= 0 && pane.cursor < pane.bars.length - 1);
   }
 
   /* ============================================================ 回放 */
@@ -1046,9 +1064,9 @@
     var dg = pane.digits;
     var pos = book.position;
 
-    $('btnBuy').disabled = !!pos;
-    $('btnSell').disabled = !!pos;
     var bar = pane.bars[pane.cursor];
+    $('btnBuy').disabled = !!pos || !bar;
+    $('btnSell').disabled = !!pos || !bar;
     $('tpEntryPrice').textContent = bar ? bar.close.toFixed(dg) : '';
 
     var posBox = $('posBlock');
@@ -1136,7 +1154,7 @@
   function doTrade(dir) {
     var pane = activePane();
     if (!pane || !pane.book) return;
-    if (!pane.bars.length) { hint('还没有数据'); return; }
+    if (!pane.bars.length || !pane.bars[pane.cursor]) { hint('还没有数据'); return; }
     if (!pane.book.canOpen()) { hint('已有持仓，先平仓'); return; }
 
     var lots = parseFloat($('lotsInput').value);
@@ -1210,7 +1228,9 @@
     if (price === null || price === undefined) return;
 
     var book = pane.book;
-    var close = pane.bars[pane.cursor].close;
+    var curBar = pane.bars[pane.cursor];
+    if (!curBar) return;
+    var close = curBar.close;
     var dg = pane.digits;
     var hasPos = !!book.position;
     var menu = $('ctxMenu');

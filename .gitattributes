@@ -6,6 +6,9 @@
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
 
+# Linux 启动脚本保持 LF
+*.sh text eol=lf
+
 # 二进制：不让 git 做换行转换/文本 diff
 *.hst binary
 *.png binary

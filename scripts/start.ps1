@@ -1,7 +1,7 @@
 ﻿#requires -version 5
 <#
   K线复盘 启动器
-  用法:  powershell -ExecutionPolicy Bypass -File start.ps1 [-Port 8766] [-NoOpen]
+  用法:  powershell -ExecutionPolicy Bypass -File scripts\start.ps1 [-Port 8766] [-NoOpen]
 #>
 param(
   [int]$Port = 8766,
@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
 
 # 控制台按 UTF-8 输出，避免中文乱码

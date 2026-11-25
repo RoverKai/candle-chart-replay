@@ -110,6 +110,7 @@
     // 兜底: 按 barSpacing 从光标处线性外推
     var cur = this.getCursor ? this.getCursor() : bars.length - 1;
     var curBar = bars[Math.min(cur, bars.length - 1)];
+    if (!curBar) return null;
     var cxCur = ts.timeToCoordinate(curBar.time);
     if (cxCur === null || cxCur === undefined) return null;
     var sp = 6;
@@ -143,6 +144,7 @@
     if (!bars.length) return null;
     var limit = bars.length - 1;
     if (this.getCursor) limit = Math.min(limit, this.getCursor());   // 不能画到未来
+    if (limit < 0) return null;
     var logical = this.chart.timeScale().coordinateToLogical(x);
     if (logical === null || logical === undefined) return null;
     var idx = Math.round(logical);
@@ -779,7 +781,7 @@
       var r = this.chart.timeScale().getVisibleLogicalRange();
       var bars = this.getBars ? this.getBars() : null;
       var cur = this.getCursor ? Math.min(this.getCursor(), bars.length - 1) : bars.length - 1;
-      var ref = bars && bars.length ? bars[cur].close : 0;
+      var ref = bars && bars.length && cur >= 0 ? bars[cur].close : 0;
       var y = this.series.priceToCoordinate(ref);
       return [
         r ? r.from.toFixed(3) : '-',

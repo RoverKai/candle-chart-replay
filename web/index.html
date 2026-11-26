@@ -61,10 +61,20 @@
 <div class="popover" id="drawPanel" hidden>
   <button class="menu-item" id="btnUndo">撤销 <kbd>Ctrl+Z</kbd></button>
   <button class="menu-item" id="btnDeleteSel">删除选中 <kbd>Del</kbd></button>
+  <button class="menu-item" id="btnStyleSel">画线样式… <kbd>双击画线</kbd></button>
   <button class="menu-item" id="btnClearAll">清空本窗格画线</button>
   <button class="menu-item" id="btnExportDraw">导出画线 JSON</button>
   <button class="menu-item" id="btnImportDraw">导入画线 JSON</button>
   <input type="file" id="importFile" accept="application/json" hidden>
+</div>
+
+<!-- 画线样式面板 -->
+<div class="popover style-panel" id="stylePanel" hidden>
+  <div class="style-head">
+    <span id="styleTitle">画线样式</span>
+    <button class="style-x" id="btnStyleClose" title="关闭">×</button>
+  </div>
+  <div class="style-body" id="styleBody"></div>
 </div>
 
 <main class="workspace">

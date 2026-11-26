@@ -3,23 +3,79 @@
 (function (global) {
   'use strict';
 
-  var FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-  var FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#2962ff', '#787b86'];
+  var FIB_DEFAULT_LEVELS = [
+    { ratio: 0,     color: '#787b86' },
+    { ratio: 0.236, color: '#f23645' },
+    { ratio: 0.382, color: '#ff9800' },
+    { ratio: 0.5,   color: '#4caf50' },
+    { ratio: 0.618, color: '#089981' },
+    { ratio: 0.786, color: '#2962ff' },
+    { ratio: 1,     color: '#787b86' }
+  ];
   var HIT = 7;            // 命中测试像素半径
   var HANDLE = 3.5;       // 端点手柄半宽
 
   var DEFAULTS = {
-    trend:   { color: '#2962ff', width: 1.6 },
-    ray:     { color: '#2962ff', width: 1.6 },
-    hline:   { color: '#f4a261', width: 1.4 },
-    vline:   { color: '#f4a261', width: 1.4 },
-    rect:    { color: '#26a69a', width: 1.4 },
-    fib:     { color: '#9598a1', width: 1.2 },
-    text:    { color: '#e8eaf0', width: 1 },
-    measure: { color: '#4caf50', width: 1.4 }
+    trend:   { color: '#2962ff', width: 1.6, opacity: 1 },
+    ray:     { color: '#2962ff', width: 1.6, opacity: 1 },
+    hline:   { color: '#f4a261', width: 1.4, opacity: 1 },
+    vline:   { color: '#f4a261', width: 1.4, opacity: 1 },
+    rect:    { color: '#26a69a', fillColor: '#26a69a', fillOpacity: 0.1, width: 1.4, opacity: 1 },
+    fib:     { color: '#9598a1', width: 1.2, opacity: 1, levels: FIB_DEFAULT_LEVELS },
+    text:    { color: '#e8eaf0', width: 1, opacity: 1 },
+    measure: { color: '#4caf50', width: 1.4, opacity: 1 }
   };
 
   var SINGLE_POINT = { hline: 1, vline: 1, text: 1 };
+  var STYLE_FIELDS = { color: 1, fillColor: 1, opacity: 1, fillOpacity: 1, width: 1 };
+
+  function clamp01(v) {
+    v = Number(v);
+    if (!isFinite(v)) return 1;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+  }
+
+  /** 旧数据没存颜色时, 先按比例匹配默认调色板, 再按行号兜底 */
+  function defaultLevelColor(ratio, index) {
+    for (var i = 0; i < FIB_DEFAULT_LEVELS.length; i++) {
+      if (Math.abs(FIB_DEFAULT_LEVELS[i].ratio - ratio) < 1e-9) return FIB_DEFAULT_LEVELS[i].color;
+    }
+    return FIB_DEFAULT_LEVELS[index] ? FIB_DEFAULT_LEVELS[index].color : '#9598a1';
+  }
+
+  /** 拷贝并规整斐波那契水平位, 兼容老数据里的纯数字数组 */
+  function normalizeLevels(list) {
+    return (list || []).map(function (lv, index) {
+      var ratio = typeof lv === 'number' ? lv : (lv && lv.ratio);
+      ratio = Number(ratio);
+      var value = isFinite(ratio) ? ratio : 0;
+      return {
+        ratio: value,
+        color: (lv && lv.color) || defaultLevelColor(value, index),
+        visible: !lv || lv.visible !== false
+      };
+    });
+  }
+
+  /** 画线自己的水平位; 老数据没有 levels 字段时退回内置默认值。
+      纯数字数组等旧格式在这里归一化一次并写回画线对象。 */
+  function fibLevelsOf(d) {
+    if (!d || !Array.isArray(d.levels)) return FIB_DEFAULT_LEVELS;
+    for (var i = 0; i < d.levels.length; i++) {
+      var lv = d.levels[i];
+      if (!lv || typeof lv !== 'object' || lv.ratio === undefined || lv.ratio === null) {
+        d.levels = normalizeLevels(d.levels);
+        break;
+      }
+    }
+    return d.levels;
+  }
+
+  function fmtRatio(v) {
+    v = Number(v);
+    if (!isFinite(v)) return '0';
+    return v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
 
   function uid() {
     return 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -43,6 +99,8 @@
     this.getCursor = opts.getCursor || null;
     this.onChange = opts.onChange || function () {};
     this.onHint = opts.onHint || function () {};
+    this.onEdit = opts.onEdit || null;
+    this.defaults = null;       // setDefaults() 注入的每种工具的新画线默认样式
 
     this.ctx = this.canvas.getContext('2d');
     this.drawings = [];
@@ -239,7 +297,11 @@
   /* ------------------------------------------------------------ 数据 */
 
   DrawingLayer.prototype.setDrawings = function (list) {
-    this.drawings = (list || []).filter(function (d) { return d && d.type && d.pts && d.pts.length; });
+    this.drawings = (list || []).filter(function (d) { return d && d.type && d.pts && d.pts.length; })
+      .map(function (d) {
+        if (d.type === 'fib' && Array.isArray(d.levels)) d.levels = normalizeLevels(d.levels);
+        return d;
+      });
     this.selected = null;
     this.pending = null;
     this.redraw();
@@ -297,13 +359,84 @@
 
   DrawingLayer.prototype._add = function (type, pts, extra) {
     this._snapshot();
-    var d = Object.assign({ id: uid(), type: type, pts: pts }, DEFAULTS[type] || { color: '#2962ff', width: 1.4 });
+    var d = Object.assign({ id: uid(), type: type, pts: pts }, this._styleFor(type));
+    if (d.levels) d.levels = normalizeLevels(d.levels);
     if (extra) Object.assign(d, extra);
+    if (d.type === 'rect' && !d.fillColor) d.fillColor = d.color;
     this.drawings.push(d);
     this.selected = d.id;
     this.onChange();
     this.redraw();
     return d;
+  };
+
+  /** 每种工具的新画线样式: 内置默认值 + 用户保存的覆盖项 */
+  DrawingLayer.prototype._styleFor = function (type) {
+    var base = DEFAULTS[type] || { color: '#2962ff', width: 1.4, opacity: 1 };
+    var custom = (this.defaults && this.defaults[type]) || null;
+    var out = Object.assign({}, base, custom || {});
+    if (out.levels) out.levels = normalizeLevels(out.levels);
+    if (type === 'rect' && !out.fillColor) out.fillColor = out.color;
+    return out;
+  };
+
+  /** all: { trend: {...}, rect: {...}, fib: { ..., levels: [...] } }; 只影响之后新建的画线 */
+  DrawingLayer.prototype.setDefaults = function (all) {
+    var next = {};
+    for (var type in DEFAULTS) {
+      var custom = all && all[type];
+      next[type] = Object.assign({}, DEFAULTS[type], (custom && typeof custom === 'object') ? custom : {});
+      if (type === 'fib') {
+        next[type].levels = normalizeLevels(
+          Array.isArray(next[type].levels) ? next[type].levels : FIB_DEFAULT_LEVELS
+        );
+      }
+      if (type === 'rect' && !next[type].fillColor) next[type].fillColor = next[type].color;
+    }
+    this.defaults = next;
+    // 正在放置的斐波那契预览也应立刻换用新默认水平位
+    this.redraw();
+  };
+
+  DrawingLayer.prototype.getDrawing = function (id) {
+    return this._find(id);
+  };
+
+  DrawingLayer.prototype.select = function (id) {
+    if (!this._find(id)) return false;
+    this.selected = id;
+    this.redraw();
+    return true;
+  };
+
+  DrawingLayer.prototype.getFibLevels = function (id) {
+    var d = this._find(id);
+    return d ? normalizeLevels(fibLevelsOf(d)) : null;
+  };
+
+  /** 用户开始编辑样式前记一次撤销点, 之后连续的 input 事件不再堆栈 */
+  DrawingLayer.prototype.beginStyleEdit = function (id) {
+    if (!this._find(id)) return false;
+    this._snapshot();
+    return true;
+  };
+
+  DrawingLayer.prototype.updateStyle = function (id, patch) {
+    var d = this._find(id);
+    if (!d || !patch) return false;
+    for (var key in STYLE_FIELDS) {
+      if (patch[key] !== undefined) d[key] = patch[key];
+    }
+    if (patch.opacity !== undefined) d.opacity = clamp01(patch.opacity);
+    if (patch.fillOpacity !== undefined) d.fillOpacity = clamp01(patch.fillOpacity);
+    if (patch.levels !== undefined) d.levels = normalizeLevels(patch.levels);
+    this.redraw();
+    this.onChange();
+    return true;
+  };
+
+  DrawingLayer.prototype.hitAt = function (x, y) {
+    return this._hitTest(x, y);
   };
 
   /* ------------------------------------------------------------ 事件 */
@@ -475,10 +608,28 @@
       if (!self.pending) self.requestRedraw();
     };
 
+    // 双击已选/未选中的画线都打开样式面板 (TradingView 习惯)
+    this._onDblClick = function (e) {
+      if (self.tool !== 'cursor') return;
+      var target = e.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      var r = host.getBoundingClientRect();
+      var hit = self._hitTest(e.clientX - r.left, e.clientY - r.top);
+      if (!hit) return;
+      var hitDrawing = self._find(hit.id);
+      if (!hitDrawing || hitDrawing.type === 'measure') return;
+      e.preventDefault();
+      e.stopPropagation();
+      self.selected = hit.id;
+      self.redraw();
+      if (self.onEdit) self.onEdit(hit.id);
+    };
+
     host.addEventListener('mousedown', this._onDown, true);
     window.addEventListener('mousemove', this._onMove, true);
     window.addEventListener('mouseup', this._onUp, true);
     host.addEventListener('mouseleave', this._onLeave, true);
+    host.addEventListener('dblclick', this._onDblClick, true);
 
     // 修饰键按下/松开本身不会产生 mousemove, 但预览和拖动结果要立刻跟着变
     this._onMods = function (e) {
@@ -512,6 +663,7 @@
     window.removeEventListener('mousemove', this._onMove, true);
     window.removeEventListener('mouseup', this._onUp, true);
     this.host.removeEventListener('mouseleave', this._onLeave, true);
+    this.host.removeEventListener('dblclick', this._onDblClick, true);
     window.removeEventListener('keydown', this._onMods, true);
     window.removeEventListener('keyup', this._onMods, true);
     this.drag = null;
@@ -627,8 +779,9 @@
     if (!xy[0] || !xy[1]) return false;
     if (d.type === 'fib') {
       var yA = xy[0].y, yB = xy[1].y, x1 = Math.min(xy[0].x, xy[1].x), x2 = Math.max(xy[0].x, xy[1].x);
+      var lvls = fibLevelsOf(d).filter(function (lv) { return lv.visible !== false && isFinite(Number(lv.ratio)); });
       return x >= x1 - HIT && x <= x2 + HIT && (Math.abs(y - yA) <= HIT || Math.abs(y - yB) <= HIT ||
-        FIB_LEVELS.some(function (lv) { return Math.abs(y - (yA + (yB - yA) * lv)) <= HIT; }));
+        lvls.some(function (lv) { return Math.abs(y - (yA + (yB - yA) * Number(lv.ratio))) <= HIT; }));
     }
     return dist2seg(x, y, xy[0].x, xy[0].y, xy[1].x, xy[1].y) <= HIT;
   };
@@ -714,6 +867,7 @@
     ctx.save();
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    ctx.globalAlpha = clamp01(d.opacity === undefined || d.opacity === null ? 1 : d.opacity);
     ctx.strokeStyle = color;
     ctx.lineWidth = d.width || 1.4;
 
@@ -735,7 +889,8 @@
       if (!xy[0] || !xy[1]) { ctx.restore(); return; }
       var rx = Math.min(xy[0].x, xy[1].x), ry = Math.min(xy[0].y, xy[1].y);
       var rw = Math.abs(xy[1].x - xy[0].x), rh = Math.abs(xy[1].y - xy[0].y);
-      ctx.fillStyle = this._alpha(color, 0.1);
+      var fillOpacity = d.fillOpacity === undefined || d.fillOpacity === null ? 0.1 : clamp01(d.fillOpacity);
+      ctx.fillStyle = this._alpha(d.fillColor || color, fillOpacity);
       ctx.fillRect(rx, ry, rw, rh);
       ctx.strokeRect(rx, ry, rw, rh);
     } else if (d.type === 'fib') {
@@ -761,6 +916,7 @@
     }
 
     if (selected) {
+      ctx.globalAlpha = 1;
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#2962ff';
       ctx.lineWidth = 1.5;
@@ -793,8 +949,12 @@
       ctx.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     } else if (this.tool === 'fib') {
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      for (var i = 0; i < FIB_LEVELS.length; i++) {
-        var yy = a.y + (b.y - a.y) * FIB_LEVELS[i];
+      var previewLevels = normalizeLevels(
+        (this.defaults && this.defaults.fib && this.defaults.fib.levels) || FIB_DEFAULT_LEVELS
+      );
+      for (var i = 0; i < previewLevels.length; i++) {
+        if (previewLevels[i].visible === false) continue;
+        var yy = a.y + (b.y - a.y) * previewLevels[i].ratio;
         ctx.moveTo(Math.min(a.x, b.x), yy); ctx.lineTo(Math.max(a.x, b.x), yy);
       }
     } else {
@@ -832,21 +992,27 @@
     var x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
     var dg = this.digits || 2;
     var p0 = d.pts[0].price, p1 = d.pts[1].price;
-    for (var i = 0; i < FIB_LEVELS.length; i++) {
-      var lv = FIB_LEVELS[i];
-      var y = a.y + (b.y - a.y) * lv;
-      ctx.strokeStyle = FIB_COLORS[i];
+    var levels = fibLevelsOf(d);
+    var baseColor = d.color || '#9598a1';
+    for (var i = 0; i < levels.length; i++) {
+      var lv = levels[i];
+      if (!lv || lv.visible === false) continue;
+      var ratioNum = Number(lv.ratio);
+      if (!isFinite(ratioNum)) continue;
+      var col = lv.color || baseColor;
+      var y = a.y + (b.y - a.y) * ratioNum;
+      ctx.strokeStyle = col;
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
 
-      var ratio = lv.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-      var price = p0 + (p1 - p0) * lv;
+      var ratio = fmtRatio(ratioNum);
+      var price = p0 + (p1 - p0) * ratioNum;
       var text = ratio + '  ' + price.toFixed(dg);
       ctx.font = '11px "Segoe UI", "Microsoft YaHei", sans-serif';
       var tw = ctx.measureText(text).width;
       ctx.fillStyle = 'rgba(19,23,34,.78)';
       ctx.fillRect(x2 + 2, y - 8, tw + 8, 15);
-      ctx.fillStyle = FIB_COLORS[i];
+      ctx.fillStyle = col;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, x2 + 6, y);
@@ -1002,12 +1168,11 @@
       return true;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-      this.undo();
-      return true;
+      return this.undo();
     }
     return false;
   };
 
   global.DrawingLayer = DrawingLayer;
-  global.DRAW_TOOLS = { SINGLE_POINT: SINGLE_POINT, DEFAULTS: DEFAULTS };
+  global.DRAW_TOOLS = { SINGLE_POINT: SINGLE_POINT, DEFAULTS: DEFAULTS, FIB_DEFAULT_LEVELS: FIB_DEFAULT_LEVELS };
 })(window);

@@ -118,6 +118,8 @@ try {
     const got = dl.getDrawing(d.id);
     return {
       normalized: got.levels.every((lv) => lv && typeof lv === 'object' && typeof lv.ratio === 'number'),
+      palette: got.levels.find((lv) => lv.ratio === 0.5).color === '#4caf50' &&
+        got.levels.find((lv) => lv.ratio === 0).color === '#787b86',
       x: (a.x + b.x) / 2,
       yLine: a.y + (b.y - a.y) * 0.5,
       yGap: a.y + (b.y - a.y) * 0.45,
@@ -125,6 +127,7 @@ try {
     };
   });
   check('纯数字 levels 载入后归一化为对象', legacy.normalized === true);
+  check('纯数字 levels 沿用默认彩色调色板', legacy.palette === true);
   const px = await page.evaluate((g) => {
     const dl = window.KR.drawLayer;
     const c = document.getElementById('drawLayer');

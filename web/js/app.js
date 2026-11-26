@@ -1143,7 +1143,8 @@
 
   function openStylePanel(pane, id) {
     if (!pane || !pane.drawLayer) return;
-    if (!pane.drawLayer.getDrawing(id)) return;
+    var d = pane.drawLayer.getDrawing(id);
+    if (!d || d.type === 'measure') return;
     styleCtx = { pane: pane, id: id, dirty: false };
     pane.drawLayer.select(id);
     $('indicatorPanel').hidden = true;

@@ -35,14 +35,23 @@
     return v < 0 ? 0 : v > 1 ? 1 : v;
   }
 
+  /** 旧数据没存颜色时, 先按比例匹配默认调色板, 再按行号兜底 */
+  function defaultLevelColor(ratio, index) {
+    for (var i = 0; i < FIB_DEFAULT_LEVELS.length; i++) {
+      if (Math.abs(FIB_DEFAULT_LEVELS[i].ratio - ratio) < 1e-9) return FIB_DEFAULT_LEVELS[i].color;
+    }
+    return FIB_DEFAULT_LEVELS[index] ? FIB_DEFAULT_LEVELS[index].color : '#9598a1';
+  }
+
   /** 拷贝并规整斐波那契水平位, 兼容老数据里的纯数字数组 */
   function normalizeLevels(list) {
-    return (list || []).map(function (lv) {
+    return (list || []).map(function (lv, index) {
       var ratio = typeof lv === 'number' ? lv : (lv && lv.ratio);
       ratio = Number(ratio);
+      var value = isFinite(ratio) ? ratio : 0;
       return {
-        ratio: isFinite(ratio) ? ratio : 0,
-        color: (lv && lv.color) || '#9598a1',
+        ratio: value,
+        color: (lv && lv.color) || defaultLevelColor(value, index),
         visible: !lv || lv.visible !== false
       };
     });

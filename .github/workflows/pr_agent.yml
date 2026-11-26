@@ -20,7 +20,8 @@ jobs:
     # 跳过 bot 自己发的评论，避免 PR-Agent 回复自己造成死循环
     if: ${{ github.event.sender.type != 'Bot' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # ai_timeout 是 35 分钟，job 要留出装 diff、发评论的余量
+    timeout-minutes: 45
     permissions:
       contents: read         # 读取 PR 与文件
       issues: write          # 回复 issue_comment 里的斜杠命令
@@ -47,10 +48,21 @@ jobs:
           # 上下文预算。max_model_tokens 是硬上限（默认 32000），会二次夹住
           # custom_model_max_tokens——只设后者不设前者，预算仍然是 32000。
           # 想放宽就两个一起改；调太大反而会拉低评审质量（输入过长模型会退化）。
-          config.max_model_tokens: "131072"
-          config.custom_model_max_tokens: "131072"
-          # 推理型模型默认 120s 太紧，大 diff 会超时
-          config.ai_timeout: "300"
+          #
+          # 524288 = 393216 输出预留 + 131072 输入。PR-Agent 装 diff 时会把
+          # max_output_tokens 从上下文窗口里扣掉再算输入预算；如果这里只写 131072，
+          # 393216 的输出预留会把输入预算挤成 0，diff 直接装不进去。
+          # 模型本身是 1M 上下文 / 384K 输出，512K 的上下文预算仍在模型能力之内。
+          config.max_model_tokens: "524288"
+          config.custom_model_max_tokens: "524288"
+          # 单次生成的硬上限。不设时由 DeepSeek 服务端决定：thinking 模式默认 64K。
+          # 2026-11-26 的 /review 就是 64K 全花在 reasoning 上、正文为空
+          # （finish_reason=length）。这里直接给到模型上限 384K，不再让服务端默认值截断。
+          config.max_output_tokens: "393216"
+          # 384K 输出按 flash 的速度约 32 分钟；平时评审 5 分钟左右，这里只是兜底。
+          config.ai_timeout: "2100"
+          # 超时重试会让 35 分钟的上限翻倍、必然撞 job timeout，关掉它
+          config.retry_same_model_on_timeout: "false"
           config.response_language: "zh-CN"
           github_action_config.auto_describe: "true"
           github_action_config.auto_review: "true"

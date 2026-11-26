@@ -15,7 +15,8 @@
     "verify:sl": "node tools/verify6.mjs",
     "verify:copy": "node tools/verify7.mjs",
     "verify:layout": "node tools/verify8.mjs",
-    "verify:future": "node tools/verify9.mjs"
+    "verify:future": "node tools/verify9.mjs",
+    "verify:snap": "node tools/verify10.mjs"
   },
   "license": "MIT",
   "type": "commonjs",

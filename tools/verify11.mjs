@@ -141,6 +141,52 @@ try {
   check('纯数字 levels 实际绘制水平位', px.line > 60, `alpha=${px.line}`);
   check('水平位之间不误画', px.gap === 0, `alpha=${px.gap}`);
   check('纯数字 levels 可命中选择画线', px.hit === true);
+
+  // ---------- 测量线不应出现无效样式入口 ----------
+  await page.click('button[data-tool="measure"]');
+  const m0 = at(0.14, 0.78), m1 = at(0.24, 0.72);
+  await page.mouse.move(...m0);
+  await page.mouse.down();
+  await page.mouse.move(...m1, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+  const midX = (m0[0] + m1[0]) / 2, midY = (m0[1] + m1[1]) / 2;
+  await page.mouse.click(midX, midY, { button: 'right' });
+  await page.waitForTimeout(120);
+  const measureStyleItems = await page.locator('#ctxMenu .ctx-item', { hasText: '画线样式…' }).count();
+  check('测量线右键不出现画线样式入口', measureStyleItems === 0, `count=${measureStyleItems}`);
+  await page.keyboard.press('Escape');
+  await page.mouse.dblclick(midX, midY);
+  await page.waitForTimeout(120);
+  check('测量线双击不打开样式面板', await page.locator('#stylePanel').isHidden());
+  await page.click('button[data-tool="cursor"]');
+
+  // ---------- localStorage 写入失败时不谎报已保存 ----------
+  await page.mouse.dblclick(box.x + legacy.x, box.y + legacy.yLine);
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    localStorage.removeItem('kline-replay:draw-defaults');
+    window.__origSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key) {
+      if (String(key).indexOf('kline-replay:draw-defaults') === 0) {
+        throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      }
+      return window.__origSetItem.apply(this, arguments);
+    };
+  });
+  await page.click('#styleBody [data-act="save-default"]');
+  await page.waitForTimeout(120);
+  const failState = await page.evaluate(() => {
+    const stored = localStorage.getItem('kline-replay:draw-defaults');
+    const text = document.getElementById('hint') ? document.getElementById('hint').textContent : '';
+    Storage.prototype.setItem = window.__origSetItem;
+    delete window.__origSetItem;
+    return { stored, text };
+  });
+  check('存储写入失败时默认样式没有落盘', failState.stored === null, JSON.stringify(failState.stored));
+  check('存储写入失败时提示仅本次有效',
+    failState.text.indexOf('仅本次会话有效') >= 0 && failState.text.indexOf('已保存为') < 0,
+    failState.text);
 } catch (e) {
   bad.push('EXCEPTION :: ' + e.message + '\n' + e.stack);
 }

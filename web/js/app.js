@@ -1339,9 +1339,15 @@
     if (d.type === 'rect' && !style.fillColor) style.fillColor = d.color;
     if (d.type === 'fib') style.levels = layer.getFibLevels(d.id);
     drawDefaults[d.type] = style;
-    try { localStorage.setItem(DRAW_DEFAULTS_KEY, JSON.stringify(drawDefaults)); } catch (e) { }
+    var saved = true;
+    try { localStorage.setItem(DRAW_DEFAULTS_KEY, JSON.stringify(drawDefaults)); }
+    catch (e) { saved = false; }
     state.panes.forEach(function (p) { if (p.drawLayer) p.drawLayer.setDefaults(drawDefaults); });
-    hint('已保存为“' + (DRAW_TYPE_LABELS[d.type] || '画线') + '”的新画线默认样式');
+    if (saved) {
+      hint('已保存为“' + (DRAW_TYPE_LABELS[d.type] || '画线') + '”的新画线默认样式');
+    } else {
+      hint('无法写入本地存储，默认样式仅本次会话有效');
+    }
   }
 
   function onStyleClick(e) {

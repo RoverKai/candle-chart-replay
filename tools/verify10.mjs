@@ -382,7 +382,7 @@ try {
   const textAfter = await page.evaluate(() => window.KR.drawLayer.drawings.length);
   check('单点文字 Ctrl 拖动仍复制', textAfter === 2, `count=${textAfter} 期望 2`);
 
-  // ================= 6. 回放游标之后不参与吸附 =================
+  // ================= 6. 回放游标之后不参与吸附, 但落点可以进入未来区 =================
   await page.evaluate(() => {
     const idx = Math.max(1, Math.floor(window.KR.state.bars.length * 0.6));
     window.KR.api.setCursor(idx);
@@ -404,19 +404,21 @@ try {
       cursor: cur,
       barTime: b.time,
       futureTime: future && future.time,
+      lastTime: bars[bars.length - 1].time,
       futureHit: !!futureHit,
       pt: res && res.pt,
-      levels: [b.open, b.high, b.low, b.close]
+      snap: !!(res && res.snap)
     };
   });
   check('回放游标始终是数值下标', typeof replay.cursor === 'number' && Number.isFinite(replay.cursor),
     `cursor=${replay.cursor}`);
   check('游标之后的 K 线不参与吸附', replay.futureHit === false,
     `cursor=${replay.cursor} future=${replay.futureTime}`);
-  check('游标右侧 Ctrl 落点仍钳在游标内',
-    replay.pt && replay.pt.time === replay.barTime &&
-      replay.levels.some((p) => Math.abs(p - replay.pt.price) < 1e-9),
-    replay.pt ? `t=${replay.pt.time} p=${replay.pt.price}` : 'null');
+  check('游标右侧 Ctrl 落点进入未来区',
+    replay.pt && replay.pt.time > replay.barTime && replay.pt.time <= replay.lastTime,
+    replay.pt ? `t=${replay.pt.time} cursor=${replay.barTime} last=${replay.lastTime}` : 'null');
+  check('游标右侧 Ctrl 落点不吸附未来 OHLC', replay.snap === false,
+    replay.pt ? `snap=${replay.snap} p=${replay.pt.price}` : 'null');
 
   const fallback = await page.evaluate(() => {
     const dl = window.KR.drawLayer, bars = window.KR.state.bars;

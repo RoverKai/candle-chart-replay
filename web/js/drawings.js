@@ -1,5 +1,7 @@
 /* 画图层 —— 叠加在 lightweight-charts 上的 canvas, 用 {time, price} 锚点存储,
-   因此随缩放/平移/回放自动跟随, 且可跨会话持久化。 */
+   因此随缩放/平移/回放自动跟随, 且可跨会话持久化。
+   回放时锚点可以落在游标之后的未来 K 线上 (最多到完整数据最后一根),
+   未来 K 线的 OHLC 仍然不参与吸附/预览, 避免提前暴露未来价格。 */
 (function (global) {
   'use strict';
 
@@ -202,7 +204,8 @@
     return { x: x, y: y };
   };
 
-  /** 已播放范围的最后一根 K 线下标。
+  /** 已播放范围的最后一根 K 线下标。只用于 Ctrl 吸附: 未来 K 线的 OHLC
+      不参与查找, 避免提前暴露未来价格。
       getCursor 由 app 注入 pane.cursor: 初始 0, 回放/显示全部时始终是数值下标;
       只有数据未装载时可能为空, 此时还没有回放边界, 退回全量是安全的。
       注: 不能用 Math.min(hi, null), 那会把范围误钳到首根。 */
@@ -215,10 +218,17 @@
     return Math.min(hi, Math.floor(cur));
   };
 
+  /** 画线落点可用的最后一根 K 线下标: 完整数据的末尾。
+      回放时游标之后的 K 线虽然还没渲染, 但数据已经在 pane.bars 里,
+      因此起点/终点/拖动端点都可以落在未来 K 线上; 超出数据末尾时贴住最后一根。 */
+  DrawingLayer.prototype._placeLimit = function (bars) {
+    return bars.length - 1;
+  };
+
   DrawingLayer.prototype.pointOf = function (x, y) {
     var bars = this.getBars() || [];
     if (!bars.length) return null;
-    var limit = this._playedLimit(bars);   // 不能画到未来
+    var limit = this._placeLimit(bars);
     if (limit < 0) return null;
     var logical = this.chart.timeScale().coordinateToLogical(x);
     if (logical === null || logical === undefined) return null;
@@ -230,8 +240,9 @@
     return { time: bars[idx].time, price: price };
   };
 
-  /** 按时间取已播放范围内的 K 线。
-      回放游标之后的 bar 不参与吸附, 避免把未来 K 线的 OHLC 泄漏到预览/锚点。 */
+  /** 按时间取已播放范围内的 K 线 (Ctrl 吸附专用)。
+      回放游标之后的 bar 不参与吸附, 避免把未来 K 线的 OHLC 泄漏到预览/锚点;
+      落点本身允许落在未来 K 线上, 见 pointOf/_placeLimit。 */
   DrawingLayer.prototype._barForTime = function (time) {
     var bars = this.getBars ? this.getBars() : null;
     if (!bars || !bars.length) return null;

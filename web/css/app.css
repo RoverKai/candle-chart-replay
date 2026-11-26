@@ -49,13 +49,8 @@ button, select, input {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
   z-index: 20;
 }
-
-.topbar::-webkit-scrollbar { display: none; }
 
 .brand {
   display: flex;
@@ -130,6 +125,29 @@ select:focus { border-color: var(--accent); }
 .periods button:hover { color: var(--text); background: var(--panel-3); }
 .periods button.active { background: var(--accent); color: #fff; font-weight: 600; }
 .periods button[disabled] { opacity: .32; cursor: default; background: transparent; color: var(--muted-2); }
+
+/* 周期组是顶栏里最宽的一块: 窄屏时让它自身收缩 + 横向滚动,
+   保证右侧图表设置 / 画线 / 交易按钮始终留在视口内 */
+.period-field {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.period-field .periods {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-3) transparent;
+}
+
+.period-field .periods::-webkit-scrollbar { height: 4px; }
+.period-field .periods::-webkit-scrollbar-thumb {
+  background: var(--panel-3);
+  border-radius: 2px;
+}
+.period-field .periods::-webkit-scrollbar-track { background: transparent; }
 
 /* 多窗格时标出「周期」作用于哪个窗格 */
 .pane-scope {

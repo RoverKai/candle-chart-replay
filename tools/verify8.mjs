@@ -288,11 +288,16 @@ const narrow800 = await measureTopbar();
 check('800px 回放角标可见时顶栏不横向溢出', narrow800.topbarFits);
 check('800px 下右侧操作按钮仍在视口内', narrow800.actionsInView);
 
+const beforeNarrowPeriod = await page.evaluate(() => window.KR.state.panes[window.KR.state.activeIndex].period);
+check('窄屏点击前活动窗格不是 H1', beforeNarrowPeriod !== 60);
 await page.click('#periodBar button[data-period="60"]');
-await page.waitForFunction(() => window.KR.state.panes.some(function (p) { return p.period === 60; }), { timeout: 15000 });
+await page.waitForFunction(() => window.KR.state.panes[window.KR.state.activeIndex].period === 60, { timeout: 15000 });
 await page.waitForTimeout(600);
-check('窄屏滚动周期条后仍能切周期',
-  await page.evaluate(() => !!document.querySelector('#periodBar button.active[data-period="60"]')));
+check('窄屏滚动周期条后仍能切周期', await page.evaluate(() => {
+  const pane = window.KR.state.panes[window.KR.state.activeIndex];
+  const btn = document.querySelector('#periodBar button.active');
+  return pane.period === 60 && !!btn && btn.dataset.period === '60';
+}));
 
 // 切到靠右的 H4，强制把周期条滚回开头，再切换活动窗格：
 // syncPeriodBar 应把当前高亮按钮重新滚进可视区。

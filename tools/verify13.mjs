@@ -375,7 +375,73 @@ check('运行中开启 OCO 后一张成交撤销其余', st.count === 1 && st.or
   JSON.stringify({ count: st.count, orders: st.orders }));
 await page.evaluate(() => window.KR.book.setOco(false));
 
-/* ============================================================ 6c. 旧版挂单存档迁移 */
+/* ============================================================ 6c. OCO 切换后刷新仍生效 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(12500));
+await page.waitForTimeout(300);
+const persistC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+await page.evaluate((c) => {
+  const b = window.KR.book;
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+}, persistC);
+await page.waitForTimeout(200);
+await page.evaluate(() => window.KR.book.setOco(true));
+await page.waitForTimeout(700);
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(900);
+await page.click('#btnTradePanel');
+await page.waitForTimeout(300);
+await page.evaluate(() => window.KR.api.setCursor(12500));
+await page.waitForTimeout(300);
+check('刷新后 OCO 开关保持勾选', await page.isChecked('#ocoInput'));
+const persistedOco = await page.evaluate(() => ({
+  count: window.KR.book.orders.length,
+  flags: window.KR.book.orders.map((o) => o.oco === true)
+}));
+check('刷新后挂单 OCO 标记保持',
+  persistedOco.count === 2 && persistedOco.flags.every((v) => v), JSON.stringify(persistedOco));
+await jumpToLow(persistC - 6);
+await page.waitForTimeout(300);
+st = await bookState();
+check('刷新后 OCO 挂单一张成交撤销其余', st.count === 1 && st.orders === 0,
+  JSON.stringify({ count: st.count, orders: st.orders }));
+
+/* ============================================================ 6d. 关闭 OCO 后刷新不再互斥 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(13500));
+await page.waitForTimeout(300);
+const offC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+await page.evaluate(() => window.KR.book.setOco(true));
+await page.evaluate((c) => {
+  const b = window.KR.book;
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+}, offC);
+await page.waitForTimeout(200);
+await page.evaluate(() => window.KR.book.setOco(false));
+await page.waitForTimeout(700);
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(900);
+await page.click('#btnTradePanel');
+await page.waitForTimeout(300);
+await page.evaluate(() => window.KR.api.setCursor(13500));
+await page.waitForTimeout(300);
+check('刷新后 OCO 关闭状态保持', !(await page.isChecked('#ocoInput')));
+const persistedNoOco = await page.evaluate(() => window.KR.book.orders.map((o) => o.oco === true));
+check('刷新后挂单 OCO 标记关闭', persistedNoOco.length === 2 && persistedNoOco.every((v) => !v),
+  JSON.stringify(persistedNoOco));
+await jumpToLow(offC - 6);
+await page.waitForTimeout(300);
+st = await bookState();
+check('刷新后关闭 OCO 两张挂单各自成交', st.count === 2 && st.orders === 0,
+  JSON.stringify({ count: st.count, orders: st.orders }));
+
+/* ============================================================ 6e. 旧版挂单存档迁移 */
 await resetBook();
 await page.evaluate(() => window.KR.api.setCursor(13000));
 await page.waitForTimeout(300);
@@ -391,7 +457,6 @@ const legacyOrders = await page.evaluate((c) => {
       { id: 'legacy-o2', type: 'buy_limit', price: c - 6, lots: 0.1, contract: 100, sl: null, tp: null, createdTime: bar.time }
     ]
   });
-  b.onUpdate();
   return { oco: b.oco, count: b.orders.length, flags: b.orders.map((o) => o.oco === true) };
 }, legacyC);
 await page.waitForTimeout(300);

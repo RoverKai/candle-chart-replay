@@ -890,6 +890,10 @@
       this.oco = true;
       try { localStorage.setItem(OCO_KEY, '1'); } catch (e) { }
     }
+    // OCO 是全局开关: 恢复时用当前开关校正所有挂单, 避免面板勾选状态与挂单实际行为不一致
+    for (i = 0; i < this.orders.length; i++) {
+      if (this.orders[i] && typeof this.orders[i] === 'object') this.orders[i].oco = this.oco;
+    }
     this.activePosId = d.activePosId != null && this._posIndex(d.activePosId) >= 0
       ? d.activePosId
       : (this.positions.length ? this.positions[this.positions.length - 1].id : null);
@@ -898,6 +902,8 @@
     this._slBtn = null;
     this._tpBtn = null;
     this._dragMode = null;
+    // 旧挂单迁移可能改变 oco, 立即刷新面板/图表, 避免复选框与实际状态不一致
+    this.onUpdate();
   };
 
   TradeBook.prototype.clear = function () {

@@ -313,11 +313,19 @@
   };
 
   /**
-   * 切换当前工具。
-   * silent=true 用于外部(工具栏)主动设置, 避免回调又反向覆盖外部状态;
-   * 画完一条线、Esc 等由画线层自己发起的回退会触发 onToolChange, 让工具栏跟着同步。
+   * 外部(工具栏 / 窗格切换)设置工具: 调用方自己负责同步 UI, 不触发 onToolChange。
+   * 画线层内部回退到光标模式的场景走 _resetToCursor(), 它会通知外部。
    */
-  DrawingLayer.prototype.setTool = function (tool, silent) {
+  DrawingLayer.prototype.setTool = function (tool) {
+    this._applyTool(tool, false);
+  };
+
+  /** 画完一条线、按 Esc 等场景: 回到光标模式, 并通知工具栏同步 */
+  DrawingLayer.prototype._resetToCursor = function () {
+    this._applyTool('cursor', true);
+  };
+
+  DrawingLayer.prototype._applyTool = function (tool, notify) {
     var changed = this.tool !== tool;
     this.tool = tool;
     this.pending = null;
@@ -325,7 +333,7 @@
     if (tool !== 'cursor') this.selected = null;
     this.host.style.cursor = tool === 'cursor' ? '' : 'crosshair';
     this.redraw();
-    if (changed && !silent) this.onToolChange(tool);
+    if (changed && notify) this.onToolChange(tool);
   };
 
   DrawingLayer.prototype._snapshot = function () {
@@ -519,12 +527,12 @@
         if (self.tool === 'text') {
           self._inlineEdit(x, y, pt);
           self.pending = null;
-          self.setTool('cursor');
+          self._resetToCursor();
           return;
         }
         self._add(self.tool, [pt]);
         self.pending = null;
-        self.setTool('cursor');
+        self._resetToCursor();
         return;
       }
 
@@ -534,7 +542,7 @@
       } else {
         self._add(self.tool, [self.pending, pt]);
         self.pending = null;
-        self.setTool('cursor');
+        self._resetToCursor();
       }
     };
 
@@ -1168,7 +1176,7 @@
     if (e.key === 'Escape') {
       if (this.pending) { this.pending = null; this.redraw(); return true; }
       if (this.selected) { this.selected = null; this.redraw(); return true; }
-      if (this.tool !== 'cursor') { this.setTool('cursor'); return true; }
+      if (this.tool !== 'cursor') { this._resetToCursor(); return true; }
       return false;
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) {

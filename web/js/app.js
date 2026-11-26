@@ -245,12 +245,13 @@
       },
       onHint: hint,
       onEdit: function (id) { openStylePanel(pane, id); },
-      // 画完一条线 / 按 Esc 时画线层会自动回到光标模式, 工具栏高亮和提示要跟着退回
+      // 画完一条线 / 按 Esc 时画线层会自动回到光标模式, 工具栏高亮和提示要跟着退回。
+      // 非活动窗格在切走时已被重置为 cursor, 这里只同步当前窗格, 不去动全局工具栏。
       onToolChange: function (tool) {
         if (pane.index !== state.activeIndex) return;
         currentTool = tool;
         syncToolButtons();
-        if (tool === 'cursor') hint('拖动画线或点击空白处取消选择');
+        if (TOOL_TIPS[tool]) hint(TOOL_TIPS[tool]);
       }
     });
     pane.drawLayer.setDefaults(drawDefaults);
@@ -1523,6 +1524,15 @@
 
   var currentTool = 'cursor';
 
+  // 工具提示文案: 工具栏点击与画线层自动回退共用, 避免两处文案不一致
+  var TOOL_TIPS = {
+    trend: '点击起点 → 点击终点', ray: '点击起点 → 点击方向',
+    hline: '点击放置水平线', vline: '点击放置垂直线',
+    rect: '点击两个对角', fib: '点击起点 → 点击终点',
+    text: '点击位置后输入文字', measure: '按住拖动测量',
+    cursor: '拖动画线或点击空白处取消选择'
+  };
+
   function buildToolbar() {
     var bar = $('toolbar');
     bar.innerHTML = '';
@@ -1561,16 +1571,9 @@
     currentTool = id;
     syncToolButtons();
     var p = activePane();
-    // silent: 工具由工具栏主动指定, 不要让画线层的回调反过来覆盖(比如橡皮擦映射到 cursor)
-    if (p) p.drawLayer.setTool(id === 'eraser' ? 'cursor' : id, true);
-    var tips = {
-      trend: '点击起点 → 点击终点', ray: '点击起点 → 点击方向',
-      hline: '点击放置水平线', vline: '点击放置垂直线',
-      rect: '点击两个对角', fib: '点击起点 → 点击终点',
-      text: '点击位置后输入文字', measure: '按住拖动测量',
-      cursor: '拖动画线或点击空白处取消选择'
-    };
-    if (tips[id]) hint(tips[id]);
+    // 由工具栏主动设置: setTool 不触发 onToolChange, 高亮已在上面同步, 不会被反向覆盖
+    if (p) p.drawLayer.setTool(id === 'eraser' ? 'cursor' : id);
+    if (TOOL_TIPS[id]) hint(TOOL_TIPS[id]);
   }
 
   function syncToolButtons() {

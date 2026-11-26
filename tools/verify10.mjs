@@ -273,6 +273,16 @@ try {
       replay.levels.some((p) => Math.abs(p - replay.pt.price) < 1e-9),
     replay.pt ? `t=${replay.pt.time} p=${replay.pt.price}` : 'null');
 
+  const fallback = await page.evaluate(() => {
+    const dl = window.KR.drawLayer, bars = window.KR.state.bars;
+    const saved = dl.getCursor;
+    dl.getCursor = () => null;
+    const hit = dl._barForTime(bars[bars.length - 1].time);
+    dl.getCursor = saved;
+    return { hit: !!hit, last: bars[bars.length - 1].time };
+  });
+  check('getCursor 无效时吸附范围不退化', fallback.hit, `last=${fallback.last}`);
+
   // ================= 7. 销毁窗格时释放监听 =================
   const disposeCheck = await page.evaluate(async () => {
     window.KR.api.setLayout(2);
@@ -286,18 +296,21 @@ try {
         }
       }, 50);
     });
-    const victim = window.KR.state.panes[1] && window.KR.state.panes[1].drawLayer;
+    const victimPane = window.KR.state.panes[1];
+    const victim = victimPane && victimPane.drawLayer;
     window.KR.api.setLayout(1);
     await new Promise((r) => setTimeout(r, 1200));
     return victim ? {
       disposed: !!victim._disposed,
       stopped: !!victim._syncStopped,
       connected: victim.host.isConnected,
+      observerReleased: victimPane.resizeObserver === null,
       panes: window.KR.state.panes.length
     } : null;
   });
   check('销毁窗格后旧画布层已释放', !!disposeCheck && disposeCheck.disposed && disposeCheck.stopped &&
-    disposeCheck.connected === false && disposeCheck.panes === 1, JSON.stringify(disposeCheck));
+    disposeCheck.connected === false && disposeCheck.observerReleased && disposeCheck.panes === 1,
+    JSON.stringify(disposeCheck));
 } catch (e) {
   bad.push('EXCEPTION: ' + (e && e.message ? e.message : String(e)));
 }

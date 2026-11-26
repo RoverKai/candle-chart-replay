@@ -143,11 +143,21 @@
     return { x: x, y: y };
   };
 
+  /** 已播放范围的最后一根 K 线下标。
+      getCursor 缺失或返回无效值时退回全量, 避免 Math.min 把范围误钳到首根。 */
+  DrawingLayer.prototype._playedLimit = function (bars) {
+    var hi = bars.length - 1;
+    if (!this.getCursor) return hi;
+    var cur = this.getCursor();
+    if (typeof cur !== 'number' || !isFinite(cur)) return hi;
+    if (cur < 0) return -1;
+    return Math.min(hi, Math.floor(cur));
+  };
+
   DrawingLayer.prototype.pointOf = function (x, y) {
     var bars = this.getBars() || [];
     if (!bars.length) return null;
-    var limit = bars.length - 1;
-    if (this.getCursor) limit = Math.min(limit, this.getCursor());   // 不能画到未来
+    var limit = this._playedLimit(bars);   // 不能画到未来
     if (limit < 0) return null;
     var logical = this.chart.timeScale().coordinateToLogical(x);
     if (logical === null || logical === undefined) return null;
@@ -164,8 +174,7 @@
   DrawingLayer.prototype._barForTime = function (time) {
     var bars = this.getBars ? this.getBars() : null;
     if (!bars || !bars.length) return null;
-    var hi = bars.length - 1;
-    if (this.getCursor) hi = Math.min(hi, this.getCursor());
+    var hi = this._playedLimit(bars);
     if (hi < 0) return null;
     var lo = 0;
     while (lo <= hi) {

@@ -276,14 +276,20 @@
       showChartMenu(pane, e.clientX, e.clientY, e.clientX - r.left, e.clientY - r.top);
     });
 
-    new ResizeObserver(function () { if (pane.drawLayer) pane.drawLayer.resize(); })
-      .observe(pane.els.wrap);
+    pane.resizeObserver = new ResizeObserver(function () {
+      if (pane.drawLayer) pane.drawLayer.resize();
+    });
+    pane.resizeObserver.observe(pane.els.wrap);
 
     return pane;
   }
 
   function destroyPane(pane) {
     cancelTradeSave(pane);
+    if (pane.resizeObserver) {
+      pane.resizeObserver.disconnect();
+      pane.resizeObserver = null;
+    }
     if (pane.drawLayer) pane.drawLayer.dispose();
     try { pane.chart.remove(); } catch (e) { /* ignore */ }
     if (pane.els.section.parentNode) pane.els.section.parentNode.removeChild(pane.els.section);

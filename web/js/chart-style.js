@@ -4,6 +4,7 @@
   'use strict';
 
   var STORAGE_KEY = 'kline-replay:chart-style';
+  var HEAVY_BARS = 150000;   // 超过这个数量时, 预览阶段不整列重建成交量数据
 
   var DEFAULTS = {
     background: '#131722',
@@ -303,7 +304,8 @@
     pane.chart.applyOptions(appearanceOptions(style));
     if (pane.candle) pane.candle.applyOptions(candleOptions(style));
     if (pane.els && pane.els.wrap) pane.els.wrap.style.background = style.background;
-    // 画线 / 持仓标签由独立 canvas 绘制, 浅色主题下需要重绘成深色文字
+    // 画线 / 持仓层是独立 canvas, 主题变化后需要重绘
+    // (画线标签自带深色底, 浅色背景也可读; 持仓 SL/TP 按钮由 trading.js 读取 isLight 调色)
     if (pane.drawLayer) pane.drawLayer.requestRedraw();
   }
 
@@ -568,6 +570,10 @@
     if (!ui.ready) return;
     var tab = TABS.filter(function (t) { return t.id === activeTab; })[0] || TABS[0];
     ui.body.innerHTML = '';
+    if (activeTab === 'candles' && hasHeavyData(hostOpts.getPanes ? hostOpts.getPanes() : [])) {
+      ui.body.appendChild(el('div', 'cs-hint cs-heavy-hint',
+        '历史数据较大：成交量柱的颜色 / 不透明度会在点击「应用」后统一刷新，上方预览仍会实时变化。'));
+    }
     tab.sections.forEach(function (section) {
       var sec = el('div', 'cs-section');
       if (section.title) sec.appendChild(el('div', 'cs-section-title', section.title));
@@ -683,6 +689,10 @@
     return style.upColor + '|' + style.downColor + '|' + style.volumeOpacity;
   }
 
+  function hasHeavyData(panes) {
+    return (panes || []).some(function (p) { return p.bars && p.bars.length > HEAVY_BARS; });
+  }
+
   /** 弹窗打开期间回放有没有推进过: 推进时增量成交量柱会用预览色写入 */
   function cursorsAdvanced() {
     var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
@@ -701,8 +711,7 @@
       recolorTimer = null;
       var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
       // 数据量特别大时不跟着拖动实时重算整列成交量, 留到点应用时一次性处理
-      var heavy = panes.some(function (p) { return p.bars && p.bars.length > 150000; });
-      if (heavy) return;
+      if (hasHeavyData(panes)) return;
       panes.forEach(function (p) { recolorVolume(p, draft); });
       lastVolumeSig = sig;
     }, 140);

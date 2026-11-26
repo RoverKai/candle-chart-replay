@@ -1571,6 +1571,15 @@ body.resizing-col * { cursor: row-resize !important; }
   line-height: 1.5;
 }
 
+.cs-heavy-hint {
+  margin: 10px 0 2px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 152, 0, .28);
+  border-radius: 6px;
+  background: rgba(255, 152, 0, .08);
+  color: #ffb74d;
+}
+
 .cs-foot {
   flex: 0 0 auto;
   display: flex;

@@ -461,14 +461,37 @@ const legacyOrders = await page.evaluate((c) => {
 }, legacyC);
 await page.waitForTimeout(300);
 check('旧版挂单迁移后保留 OCO 语义',
-  legacyOrders.oco === true && legacyOrders.count === 2 && legacyOrders.flags.every((v) => v),
+  legacyOrders.oco === false && legacyOrders.count === 2 && legacyOrders.flags.every((v) => v),
   JSON.stringify(legacyOrders));
-check('旧版挂单迁移后 OCO 开关同步勾选', await page.isChecked('#ocoInput'));
+check('旧版挂单迁移不影响全局 OCO 开关',
+  legacyOrders.oco === false && !(await page.isChecked('#ocoInput')), JSON.stringify({ oco: legacyOrders.oco }));
 await jumpToLow(legacyC - 6);
 await page.waitForTimeout(300);
 st = await bookState();
 check('旧版挂单一张成交撤销其余', st.count === 1 && st.orders === 0,
   JSON.stringify({ count: st.count, orders: st.orders }));
+
+/* ============================================================ 6f. 持仓编号跨刷新不重复 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(14000));
+await page.waitForTimeout(300);
+await openPos(1);
+await openPos(1);
+await page.evaluate(() => window.KR.api.closeAll());
+await page.waitForTimeout(700);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(900);
+await page.click('#btnTradePanel');
+await page.waitForTimeout(300);
+await page.evaluate(() => window.KR.api.setCursor(14000));
+await page.waitForTimeout(300);
+const reopened = await openPos(1);
+st = await bookState();
+check('清仓刷新后新持仓编号接着成交记录',
+  reopened && reopened.no === 3 && st.nos[0] === 3,
+  JSON.stringify({ no: reopened && reopened.no, nos: st.nos }));
+check('清仓刷新后成交记录仍在', st.trades >= 2, JSON.stringify({ trades: st.trades }));
 
 /* ============================================================ 7. 多窗格持仓互不影响 */
 await page.click('#layoutSwitch button[data-layout="2"]');

@@ -845,6 +845,7 @@
     return {
       positions: this.positions,
       activePosId: this.activePosId,
+      nextNo: this._nextNo,
       trades: this.trades,
       orders: this.orders
     };
@@ -871,29 +872,30 @@
       });
     }
     this._nextNo = 1;
+    var savedNext = parseInt(d.nextNo, 10);
+    if (isFinite(savedNext) && savedNext > this._nextNo) this._nextNo = savedNext;
     for (i = 0; i < this.positions.length; i++) {
       this._nextNo = Math.max(this._nextNo, (this.positions[i].no || 0) + 1);
     }
-    this.trades = (d.trades || []).slice().sort(function (a, b) { return a.exitTime - b.exitTime; });
-    this.orders = (d.orders || []).slice();
-    // 旧版挂单没有 oco 字段, 当时是隐式 OCO (一张成交撤销其余); 迁移时保留该语义,
-    // 否则升级后旧存档里的多张挂单会各自成交, 敞口突然放大。
-    var legacyOco = false;
-    for (i = 0; i < this.orders.length; i++) {
-      var order = this.orders[i];
-      if (order && typeof order === 'object' && !Object.prototype.hasOwnProperty.call(order, 'oco')) {
-        order.oco = true;
-        legacyOco = true;
+    var restoredTrades = (d.trades || []).slice();
+    // 清仓后刷新也要接着之前的成交编号, 不能只看未平仓持仓
+    for (i = 0; i < restoredTrades.length; i++) {
+      if (restoredTrades[i] && restoredTrades[i].no) {
+        this._nextNo = Math.max(this._nextNo, restoredTrades[i].no + 1);
       }
     }
-    if (legacyOco) {
-      this.oco = true;
-      try { localStorage.setItem(OCO_KEY, '1'); } catch (e) { }
-    }
-    // OCO 是全局开关: 恢复时用当前开关校正所有挂单, 避免面板勾选状态与挂单实际行为不一致
+    this.trades = restoredTrades.sort(function (a, b) { return a.exitTime - b.exitTime; });
+    this.orders = (d.orders || []).slice();
+    // 旧版挂单没有 oco 字段, 当时是隐式 OCO (一张成交撤销其余); 迁移时保留该语义,
+    // 但只作用于这些旧挂单本身, 不翻转全局 OCO 开关。
+    var legacyOrders = [];
     for (i = 0; i < this.orders.length; i++) {
-      if (this.orders[i] && typeof this.orders[i] === 'object') this.orders[i].oco = this.oco;
+      var order = this.orders[i];
+      if (!order || typeof order !== 'object') continue;
+      if (!Object.prototype.hasOwnProperty.call(order, 'oco')) legacyOrders.push(order);
+      order.oco = this.oco;
     }
+    for (i = 0; i < legacyOrders.length; i++) legacyOrders[i].oco = true;
     this.activePosId = d.activePosId != null && this._posIndex(d.activePosId) >= 0
       ? d.activePosId
       : (this.positions.length ? this.positions[this.positions.length - 1].id : null);

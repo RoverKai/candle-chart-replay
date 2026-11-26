@@ -306,6 +306,7 @@ npm run verify:copy  # 13 项断言（Ctrl 复制、播放位置记忆、按周�
 npm run verify:layout # 33 项断言（1/2/3/4 窗格、上下/左右分屏、拖动分隔线、独立周期、跨窗格时间轴同步）
 npm run verify:future # 8 项断言（回放到锚点之前画线不消失、像素级确认已绘制）
 npm run verify:snap  # 22 项断言（Shift/Ctrl 定位、回放边界、窗格销毁释放）
+npm run verify:style # 11 项断言（右键/双击样式入口、矩形配色、fib 自定义水平位、旧数据兼容、持久化）
 ```
 
 使用系统已安装的 Edge/Chrome（`CHANNEL=msedge` 可改），不额外下载浏览器。

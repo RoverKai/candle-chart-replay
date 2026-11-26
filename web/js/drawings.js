@@ -48,10 +48,18 @@
     });
   }
 
-  /** 画线自己的水平位; 老数据没有 levels 字段时退回内置默认值 */
+  /** 画线自己的水平位; 老数据没有 levels 字段时退回内置默认值。
+      纯数字数组等旧格式在这里归一化一次并写回画线对象。 */
   function fibLevelsOf(d) {
-    if (d && Array.isArray(d.levels)) return d.levels;
-    return FIB_DEFAULT_LEVELS;
+    if (!d || !Array.isArray(d.levels)) return FIB_DEFAULT_LEVELS;
+    for (var i = 0; i < d.levels.length; i++) {
+      var lv = d.levels[i];
+      if (!lv || typeof lv !== 'object' || lv.ratio === undefined || lv.ratio === null) {
+        d.levels = normalizeLevels(d.levels);
+        break;
+      }
+    }
+    return d.levels;
   }
 
   function fmtRatio(v) {
@@ -280,7 +288,11 @@
   /* ------------------------------------------------------------ 数据 */
 
   DrawingLayer.prototype.setDrawings = function (list) {
-    this.drawings = (list || []).filter(function (d) { return d && d.type && d.pts && d.pts.length; });
+    this.drawings = (list || []).filter(function (d) { return d && d.type && d.pts && d.pts.length; })
+      .map(function (d) {
+        if (d.type === 'fib' && Array.isArray(d.levels)) d.levels = normalizeLevels(d.levels);
+        return d;
+      });
     this.selected = null;
     this.pending = null;
     this.redraw();

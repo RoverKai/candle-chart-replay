@@ -1347,6 +1347,7 @@
       if (d[k] !== undefined) style[k] = d[k];
     });
     if (d.type === 'rect' && !style.fillColor) style.fillColor = d.color;
+    // visible 也属于样式: 勾掉的水平位会保存在默认值里, 新建 fib 保持同样的显示状态
     if (d.type === 'fib') style.levels = layer.getFibLevels(d.id);
     drawDefaults[d.type] = style;
     var saved = true;
@@ -1908,6 +1909,9 @@
       if (!p) return;
       var id = p.drawLayer.selected;
       if (!id) { hint('先点选一条画线'); return; }
+      var d = p.drawLayer.getDrawing(id);
+      if (!d) { hint('先点选一条画线'); return; }
+      if (d.type === 'measure') { hint('测量不支持样式设置'); return; }
       openStylePanel(p, id);
     });
     $('btnStyleClose').addEventListener('click', closeStylePanel);

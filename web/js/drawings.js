@@ -1168,8 +1168,7 @@
       return true;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-      this.undo();
-      return true;
+      return this.undo();
     }
     return false;
   };

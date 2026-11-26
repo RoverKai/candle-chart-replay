@@ -226,6 +226,29 @@ try {
   check('存储写入失败时提示仅本次有效',
     failState.text.indexOf('仅本次会话有效') >= 0 && failState.text.indexOf('已保存为') < 0,
     failState.text);
+
+  // ---------- 空撤销栈不应重绘面板, 也不应吞掉输入框原生撤销 ----------
+  await page.evaluate(() => {
+    const dl = window.KR.drawLayer;
+    dl.undoStack = [];
+    const input = document.querySelector('#styleBody .fib-row input[type="number"]');
+    input.dataset.keep = '1';
+    input.value = '-';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  });
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(120);
+  const emptyUndo = await page.evaluate(() => {
+    const input = document.querySelector('#styleBody .fib-row input[type="number"]');
+    return {
+      keep: input && input.dataset.keep,
+      panel: !document.getElementById('stylePanel').hidden
+    };
+  });
+  check('空撤销栈不重绘样式面板',
+    emptyUndo.keep === '1' && emptyUndo.panel === true,
+    JSON.stringify(emptyUndo));
 } catch (e) {
   bad.push('EXCEPTION :: ' + e.message + '\n' + e.stack);
 }

@@ -231,9 +231,11 @@
     var closed = [];
     var list = this.positions.slice();
     for (var i = 0; i < list.length; i++) {
-      var t = this._settle(list[i], bar.time, bar.close, reason || '全部平仓');
+      var t = this._settle(list[i], bar.time, bar.close, reason || '全部平仓', true);
       if (t) closed.push(t);
     }
+    // 逐笔结算时静默, 全部平完后只刷新一次面板/图表
+    if (closed.length) this.onUpdate();
     return closed;
   };
 
@@ -346,7 +348,7 @@
     return filled;
   };
 
-  TradeBook.prototype._settle = function (pos, exitTime, exitPrice, reason) {
+  TradeBook.prototype._settle = function (pos, exitTime, exitPrice, reason, silent) {
     var i = this._posIndex(pos.id);
     if (i < 0) return null;
     this.positions.splice(i, 1);
@@ -374,7 +376,7 @@
       var last = this.positions.length ? this.positions[this.positions.length - 1] : null;
       this.activePosId = last ? last.id : null;
     }
-    this.onUpdate();
+    if (!silent) this.onUpdate();
     return trade;
   };
 

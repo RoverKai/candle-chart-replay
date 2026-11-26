@@ -614,6 +614,26 @@ const dragRes = await page.evaluate(([aId, y]) => {
 check('拖拽中持仓被平掉不会改到别的单',
   dragRes.count === 1 && dragRes.after === dragRes.before, JSON.stringify(dragRes));
 
+/* ============================================================ 6k. 全部平仓只刷新一次 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(16000));
+await page.waitForTimeout(300);
+await openPos(1);
+await openPos(1);
+await openPos(1);
+const bulkClose = await page.evaluate(() => {
+  const b = window.KR.book;
+  let n = 0;
+  const orig = b.onUpdate;
+  b.onUpdate = function () { n++; return orig.apply(this, arguments); };
+  const closed = b.closeAll('测试');
+  b.onUpdate = orig;
+  return { n, closed: closed.length, positions: b.positions.length, trades: b.trades.length };
+});
+check('全部平仓只触发一次刷新',
+  bulkClose.n === 1 && bulkClose.closed === 3 && bulkClose.positions === 0 && bulkClose.trades === 3,
+  JSON.stringify(bulkClose));
+
 /* ============================================================ 7. 多窗格持仓互不影响 */
 await resetBook();
 await openPos(1);

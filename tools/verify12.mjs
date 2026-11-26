@@ -96,6 +96,7 @@ try {
   });
   check('预览画布按当前背景绘制', previewPixel[0] === 19 && previewPixel[1] === 23 && previewPixel[2] === 34,
     JSON.stringify(previewPixel));
+  await page.screenshot({ path: 'shots/19-chart-settings.png' });
 
   // ---------- 网格 ----------
   await setField('gridVisible', false);
@@ -246,6 +247,25 @@ try {
     defaultStored.background === '#131722' && defaultStored.upColor === '#26a69a' &&
     defaultStored.borderVisible === false && defaultStored.crosshairVisible === true,
     JSON.stringify(defaultStored));
+
+  // ---------- 只改非成交量样式时, 不应该整列重建成交量数据 ----------
+  await page.evaluate(() => {
+    window.__volSetData = 0;
+    if (!window.__volOrigSetData) {
+      window.__volOrigSetData = window.KR.volume.setData.bind(window.KR.volume);
+      window.KR.volume.setData = function (data) {
+        window.__volSetData++;
+        return window.__volOrigSetData(data);
+      };
+    }
+  });
+  await openSettings();
+  await setField('background', '#202530');
+  await waitChart(() => window.KR.chart.options().layout.background.color === '#202530');
+  await page.click('#csApply');
+  await page.waitForTimeout(150);
+  const volSetData = await page.evaluate(() => window.__volSetData);
+  check('只改背景颜色时不重建成交量数据', volSetData === 0, 'setData=' + volSetData);
 
   // ---------- 播放中应用样式: 回放推进不能把成交量刷回旧色 ----------
   await page.selectOption('#speedSelect', '16');

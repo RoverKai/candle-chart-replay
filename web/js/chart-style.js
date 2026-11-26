@@ -431,6 +431,7 @@
   var recolorTimer = null;
   var lastVolumeSig = volumeSignature(current);
   var previewStyle = null;
+  var volumeTouched = false;
 
   function $(id) { return document.getElementById(id); }
 
@@ -617,6 +618,9 @@
     var next = clone(draft);
     next[field] = value;
     draft = sanitize(next);
+    if (field === 'upColor' || field === 'downColor' || field === 'volumeOpacity') {
+      volumeTouched = true;
+    }
 
     if (input.type === 'range') {
       var row = input.closest('.cs-field');
@@ -634,6 +638,7 @@
     var preset = PRESETS.filter(function (p) { return p.id === id; })[0];
     if (!preset) return;
     draft = clone(preset.style);
+    if (volumeSignature(draft) !== volumeSignature(current)) volumeTouched = true;
     renderBody();
     updatePresetSelect();
     schedulePreview();
@@ -641,6 +646,7 @@
 
   function resetDraft() {
     draft = clone(DEFAULTS);
+    if (volumeSignature(draft) !== volumeSignature(current)) volumeTouched = true;
     renderBody();
     updatePresetSelect();
     schedulePreview();
@@ -686,7 +692,8 @@
   function flushVolumeRecolor(style, force) {
     if (recolorTimer) { clearTimeout(recolorTimer); recolorTimer = null; }
     var sig = volumeSignature(style);
-    // 播放中打开设置时, 回放推进可能已把部分成交量柱刷回旧色; 关闭弹窗时必须整列重算一次
+    // 目标成交量色和已写入的一致时无需整列重建;
+    // force 只用于「取消」且预览期间确实改过成交量色的情况 (回放可能用预览色推进过)。
     if (!force && sig === lastVolumeSig) return;
     var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
     panes.forEach(function (p) { recolorVolume(p, style); });
@@ -699,6 +706,7 @@
     hostOpts = opts || {};
     draft = clone(current);
     previewStyle = draft;
+    volumeTouched = false;
     activeTab = 'appearance';
     lastFocus = document.activeElement;
     renderNav();
@@ -719,6 +727,7 @@
     if (!isOpen) return;
     isOpen = false;
     previewStyle = null;
+    volumeTouched = false;
     ui.root.hidden = true;
     document.removeEventListener('keydown', onDocKey, true);
     window.removeEventListener('resize', onWindowResize);
@@ -735,7 +744,7 @@
     var saved = save(current);
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = null; }
     applyAll(hostOpts.getPanes ? hostOpts.getPanes() : [], current);
-    flushVolumeRecolor(current, true);
+    flushVolumeRecolor(current, false);
     closeUi();
     if (hostOpts.onApply) hostOpts.onApply(clone(current), saved);
   }
@@ -745,7 +754,7 @@
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = null; }
     draft = clone(current);
     applyAll(hostOpts.getPanes ? hostOpts.getPanes() : [], current);
-    flushVolumeRecolor(current, true);
+    flushVolumeRecolor(current, volumeTouched);
     closeUi();
     if (hostOpts.onCancel) hostOpts.onCancel(clone(current));
   }

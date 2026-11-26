@@ -235,7 +235,7 @@ try {
       Math.abs(afterPress[1].price - anchor.pts[1].price) < 1e-9,
     `before=${JSON.stringify(anchor.pts[1])} after=${JSON.stringify(afterPress[1])}`);
 
-  // ================= 5. 光标模式 Ctrl 仍然复制 =================
+  // ================= 5. 光标模式 Ctrl 拖线体仍是复制 =================
   await reset();
   const line5 = await drawTrend(P(0.30, 0.50), P(0.60, 0.40));
   const mid = await page.evaluate((id) => {
@@ -251,22 +251,35 @@ try {
   await page.keyboard.up('Control');
   await page.waitForTimeout(300);
   const n1 = await page.evaluate(() => window.KR.drawLayer.drawings.length);
-  check('光标模式 Ctrl 拖动复制', n1 === mid.count + 1, `count=${n1} 期望 ${mid.count + 1}`);
+  check('光标模式 Ctrl 拖动线体复制', n1 === mid.count + 1, `count=${n1} 期望 ${mid.count + 1}`);
 
-  // 端点也是复制, 不是吸附
-  const ep = await page.evaluate(() => {
-    const dl = window.KR.drawLayer, d = dl.drawings[dl.drawings.length - 1];
+  // ================= 5b. 光标模式 Ctrl 拖端点吸附 =================
+  await reset();
+  const lineE = await drawTrend(P(0.30, 0.60), P(0.55, 0.50));
+  const ep = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
     return { p: dl.xyOf(d.pts[1]), count: dl.drawings.length };
-  });
-  await page.keyboard.down('Control');
-  await page.mouse.move(...at(ep.p.x, ep.p.y));
-  await page.mouse.down();
-  await page.mouse.move(...at(ep.p.x - 40, ep.p.y - 30), { steps: 8 });
-  await page.mouse.up();
-  await page.keyboard.up('Control');
-  await page.waitForTimeout(300);
-  const n2 = await page.evaluate(() => window.KR.drawLayer.drawings.length);
-  check('光标模式 Ctrl 拖端点仍是复制', n2 === ep.count + 1, `count=${n2} 期望 ${ep.count + 1}`);
+  }, lineE.id);
+  const targetE = await pickHighTarget(80);
+  check('找到端点吸附目标 K 线', !!targetE, targetE ? `t=${targetE.time} H=${targetE.price}` : 'none');
+  if (targetE) {
+    await page.keyboard.down('Control');
+    await page.mouse.move(...at(ep.p.x, ep.p.y));
+    await page.mouse.down();
+    await page.mouse.move(...at(targetE.x, targetE.y), { steps: 12 });
+    await page.mouse.up();
+    await page.keyboard.up('Control');
+    await page.waitForTimeout(250);
+    const snapped = await page.evaluate((id) => {
+      const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+      return { pts: d.pts, count: dl.drawings.length };
+    }, lineE.id);
+    check('Ctrl 拖端点吸附到目标 H 价', Math.abs(snapped.pts[1].price - targetE.price) < 1e-9,
+      `期望 ${targetE.price} 实际 ${snapped.pts[1].price}`);
+    check('Ctrl 拖端点吸附到目标 K 线', snapped.pts[1].time === targetE.time,
+      `期望 ${targetE.time} 实际 ${snapped.pts[1].time}`);
+    check('Ctrl 拖端点不复制', snapped.count === 1, `count=${snapped.count}`);
+  }
 
   // ================= 6. 回放游标之后不参与吸附 =================
   await page.evaluate(() => {

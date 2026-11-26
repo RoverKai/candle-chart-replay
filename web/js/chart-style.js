@@ -109,9 +109,8 @@
   /* ------------------------------------------------------------ 存取 / 清洗 */
 
   function num(v, fallback, min, max) {
-    var n = Number(v);
-    if (!isFinite(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
+    if (typeof v !== 'number' || !isFinite(v)) return fallback;
+    return Math.max(min, Math.min(max, v));
   }
 
   function sanitize(raw) {
@@ -277,6 +276,11 @@
     return rgba(bar.close >= bar.open ? style.upColor : style.downColor, style.volumeOpacity);
   }
 
+  /** 设置弹窗打开时, 回放推进产生的成交量柱也要用预览色, 不能被已提交样式刷回旧色 */
+  function activeVolumeStyle() {
+    return previewStyle || current;
+  }
+
   function syncCss(style) {
     var grid = document.getElementById('chartGrid');
     if (!grid) return;
@@ -426,6 +430,7 @@
   var previewRaf = null;
   var recolorTimer = null;
   var lastVolumeSig = volumeSignature(current);
+  var previewStyle = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -643,6 +648,7 @@
   }
 
   function schedulePreview() {
+    previewStyle = draft;
     if (previewRaf) return;
     previewRaf = requestAnimationFrame(function () {
       previewRaf = null;
@@ -677,10 +683,11 @@
     }, 140);
   }
 
-  function flushVolumeRecolor(style) {
+  function flushVolumeRecolor(style, force) {
     if (recolorTimer) { clearTimeout(recolorTimer); recolorTimer = null; }
     var sig = volumeSignature(style);
-    if (sig === lastVolumeSig) return;
+    // 播放中打开设置时, 回放推进可能已把部分成交量柱刷回旧色; 关闭弹窗时必须整列重算一次
+    if (!force && sig === lastVolumeSig) return;
     var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
     panes.forEach(function (p) { recolorVolume(p, style); });
     lastVolumeSig = sig;
@@ -691,6 +698,7 @@
     if (!initDialog()) return;
     hostOpts = opts || {};
     draft = clone(current);
+    previewStyle = draft;
     activeTab = 'appearance';
     lastFocus = document.activeElement;
     renderNav();
@@ -710,6 +718,7 @@
   function closeUi() {
     if (!isOpen) return;
     isOpen = false;
+    previewStyle = null;
     ui.root.hidden = true;
     document.removeEventListener('keydown', onDocKey, true);
     window.removeEventListener('resize', onWindowResize);
@@ -726,7 +735,7 @@
     var saved = save(current);
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = null; }
     applyAll(hostOpts.getPanes ? hostOpts.getPanes() : [], current);
-    flushVolumeRecolor(current);
+    flushVolumeRecolor(current, true);
     closeUi();
     if (hostOpts.onApply) hostOpts.onApply(clone(current), saved);
   }
@@ -736,7 +745,7 @@
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = null; }
     draft = clone(current);
     applyAll(hostOpts.getPanes ? hostOpts.getPanes() : [], current);
-    flushVolumeRecolor(current);
+    flushVolumeRecolor(current, true);
     closeUi();
     if (hostOpts.onCancel) hostOpts.onCancel(clone(current));
   }
@@ -998,7 +1007,7 @@
     openDialog: openDialog,
     chartOptions: function () { return chartOptions(current); },
     candleOptions: function () { return candleOptions(current); },
-    volumeColor: function (bar) { return volumeBarColor(current, bar); },
+    volumeColor: function (bar) { return volumeBarColor(activeVolumeStyle(), bar); },
     applyToPane: function (pane) { applyToPane(pane, current); },
     applyAll: function (panes) { applyAll(panes, current); },
     sanitize: sanitize

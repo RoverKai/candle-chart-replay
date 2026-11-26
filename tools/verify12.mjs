@@ -247,6 +247,48 @@ try {
     defaultStored.borderVisible === false && defaultStored.crosshairVisible === true,
     JSON.stringify(defaultStored));
 
+  // ---------- 播放中应用样式: 回放推进不能把成交量刷回旧色 ----------
+  await page.selectOption('#speedSelect', '16');
+  await page.evaluate(() => window.KR.api.setCursor(120));
+  await page.click('#btnPlay');
+  await page.waitForFunction(() => window.KR.state.playing && window.KR.state.cursor > 120, { timeout: 5000 });
+  await openSettings();
+  await page.click('#csNav button[data-tab="candles"]');
+  await setField('upColor', '#ff0000');
+  await setField('downColor', '#ffff00');
+  await setField('volumeOpacity', 0.3);
+  await waitChart(() => window.KR.candle.options().upColor === '#ff0000');
+  const cursorBefore = await page.evaluate(() => {
+    const p = window.KR.state.panes[0];
+    return p.cursor;
+  });
+  // 等实时成交量重算完成, 再让回放多推进几根, 模拟「预览后又被 updatePane 覆盖」
+  await page.waitForTimeout(350);
+  await page.waitForFunction((n) => window.KR.state.panes[0].cursor > n, cursorBefore, { timeout: 5000 });
+  await page.click('#csApply');
+  await page.waitForTimeout(80);
+  if (await page.evaluate(() => window.KR.state.playing)) await page.click('#btnPlay');
+  await page.waitForFunction(() => !window.KR.state.playing, { timeout: 3000 });
+  await page.waitForTimeout(150);
+  const volAfterPlay = await page.evaluate(() => {
+    const p = window.KR.state.panes[0];
+    const data = window.KR.volume.data();
+    let bad = 0, sample = '';
+    for (let i = 0; i < data.length; i++) {
+      const b = p.bars[i];
+      if (!b) continue;
+      const expected = b.close >= b.open ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 0, 0.3)';
+      if (data[i].color !== expected) {
+        bad++;
+        if (!sample) sample = data[i].color;
+      }
+    }
+    return { bad, sample, len: data.length, cursor: p.cursor, playing: window.KR.state.playing };
+  });
+  check('播放中应用设置后成交量柱全部换成新颜色',
+    volAfterPlay.bad === 0 && volAfterPlay.playing === false,
+    JSON.stringify(volAfterPlay));
+
   // ---------- 浅色预设 ----------
   await openSettings();
   await page.selectOption('#csPreset', 'light');
@@ -302,6 +344,7 @@ try {
   await page.evaluate(() => {
     localStorage.setItem('kline-replay:chart-style', JSON.stringify({
       background: 'red', upOpacity: 5, fontSize: 99,
+      volumeOpacity: null, borderOpacity: '', crosshairOpacity: [],
       gridVisible: 'no', borderVisible: null, crosshairStyle: 9
     }));
   });
@@ -313,9 +356,15 @@ try {
   check('非法本地样式回退默认并夹紧数值',
     dirty.bg === '#131722' && dirty.up === '#26a69a' &&
     dirtyStyle.upOpacity === 1 && dirtyStyle.fontSize === 16 &&
+    dirtyStyle.volumeOpacity === 0.42 && dirtyStyle.borderOpacity === 1 &&
+    dirtyStyle.crosshairOpacity === 1 &&
     dirty.gridVert.visible === true && dirty.borderVisible === false &&
     dirtyStyle.crosshairStyle === 4,
-    JSON.stringify({ bg: dirty.bg, upOpacity: dirtyStyle.upOpacity, fontSize: dirtyStyle.fontSize, border: dirty.borderVisible }));
+    JSON.stringify({
+      bg: dirty.bg, upOpacity: dirtyStyle.upOpacity, fontSize: dirtyStyle.fontSize,
+      volumeOpacity: dirtyStyle.volumeOpacity, borderOpacity: dirtyStyle.borderOpacity,
+      crosshairOpacity: dirtyStyle.crosshairOpacity, border: dirty.borderVisible
+    }));
 } catch (e) {
   bad.push('EXCEPTION :: ' + e.message + '\n' + e.stack);
 }

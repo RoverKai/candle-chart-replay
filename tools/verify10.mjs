@@ -311,6 +311,54 @@ try {
     Math.abs(free.pts[1].price - targetF.price) > 1e-9,
     `H=${targetF.price} 实际=${free.pts[1].price}`);
 
+  // ================= 5d. macOS ⌘ 与 Ctrl 等价 =================
+  await reset();
+  const lineG = await drawTrend(P(0.30, 0.62), P(0.55, 0.48));
+  const epG = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+    return { p: dl.xyOf(d.pts[1]) };
+  }, lineG.id);
+  const targetG = await pickHighTarget(80);
+  if (!targetG) throw new Error('no target for Meta endpoint drag');
+  await page.keyboard.down('Meta');
+  await page.mouse.move(...at(epG.p.x, epG.p.y));
+  await page.mouse.down();
+  await page.mouse.move(...at(targetG.x, targetG.y), { steps: 12 });
+  const metaDrag = await page.evaluate(() => {
+    const dl = window.KR.drawLayer;
+    return { ctrl: dl.mods.ctrl, mode: dl.drag && dl.drag.mode, clone: dl.drag && dl.drag.clone };
+  });
+  await page.mouse.up();
+  await page.keyboard.up('Meta');
+  await page.waitForTimeout(250);
+  const metaAfter = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+    return { pts: d.pts, count: dl.drawings.length };
+  }, lineG.id);
+  check('Meta(⌘) 被识别为吸附修饰键',
+    metaDrag.ctrl === true && metaDrag.mode === 'point' && metaDrag.clone === false,
+    JSON.stringify(metaDrag));
+  check('Meta 拖端点吸附到目标 H 价',
+    Math.abs(metaAfter.pts[1].price - targetG.price) < 1e-9,
+    `期望 ${targetG.price} 实际 ${metaAfter.pts[1].price}`);
+  check('Meta 拖端点不复制', metaAfter.count === 1, `count=${metaAfter.count}`);
+
+  const midG = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+    const a = dl.xyOf(d.pts[0]), b = dl.xyOf(d.pts[1]);
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, count: dl.drawings.length };
+  }, lineG.id);
+  await page.keyboard.down('Meta');
+  await page.mouse.move(...at(midG.x, midG.y));
+  await page.mouse.down();
+  await page.mouse.move(...at(midG.x + 45, midG.y + 20), { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Meta');
+  await page.waitForTimeout(250);
+  const metaBodyCount = await page.evaluate(() => window.KR.drawLayer.drawings.length);
+  check('Meta 拖线体仍复制', metaBodyCount === midG.count + 1,
+    `count=${metaBodyCount} 期望 ${midG.count + 1}`);
+
   // ================= 6. 回放游标之后不参与吸附 =================
   await page.evaluate(() => {
     const idx = Math.max(1, Math.floor(window.KR.state.bars.length * 0.6));

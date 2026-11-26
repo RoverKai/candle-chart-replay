@@ -320,6 +320,7 @@
       var x = e.clientX - r.left;
       var y = e.clientY - r.top;
       self.mods.shift = !!e.shiftKey;
+      // Ctrl 或 macOS 的 ⌘(Meta) 都视为吸附修饰键
       self.mods.ctrl = !!(e.ctrlKey || e.metaKey);
 
       if (self.tool === 'cursor') {

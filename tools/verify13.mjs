@@ -465,6 +465,27 @@ check('旧版挂单迁移后保留 OCO 语义',
   JSON.stringify(legacyOrders));
 check('旧版挂单迁移不影响全局 OCO 开关',
   legacyOrders.oco === false && !(await page.isChecked('#ocoInput')), JSON.stringify({ oco: legacyOrders.oco }));
+
+// 迁移标记必须落盘, 否则第二次刷新时旧挂单会被全局开关覆盖回独立成交
+await page.waitForTimeout(700);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(900);
+await page.click('#btnTradePanel');
+await page.waitForTimeout(300);
+await page.evaluate(() => window.KR.api.setCursor(13000));
+await page.waitForTimeout(300);
+const legacyReloaded = await page.evaluate(() => ({
+  oco: window.KR.book.oco,
+  flags: window.KR.book.orders.map((o) => o.oco === true),
+  markers: window.KR.book.orders.map((o) => o.ocoLegacy === true)
+}));
+check('旧版挂单迁移标记跨刷新保持',
+  legacyReloaded.oco === false && legacyReloaded.flags.length === 2 &&
+  legacyReloaded.flags.every((v) => v) && legacyReloaded.markers.every((v) => v),
+  JSON.stringify(legacyReloaded));
+check('旧版挂单迁移后开关仍关闭', !(await page.isChecked('#ocoInput')));
+
 await jumpToLow(legacyC - 6);
 await page.waitForTimeout(300);
 st = await bookState();

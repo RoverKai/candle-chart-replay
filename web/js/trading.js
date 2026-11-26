@@ -91,8 +91,12 @@
   /** 挂单 OCO 开关: 打开后任意一张挂单成交会撤销其余挂单; 切换立即作用于已有挂单 */
   TradeBook.prototype.setOco = function (on) {
     this.oco = !!on;
-    // 开关是全局的, 已挂出的单也要跟随, 否则勾选后旧挂单仍然各自成交
-    for (var i = 0; i < this.orders.length; i++) this.orders[i].oco = this.oco;
+    // 开关是全局的, 已挂出的单也要跟随, 否则勾选后旧挂单仍然各自成交;
+    // 用户显式切换后, 旧版挂单的 ocoLegacy 例外也一并清除。
+    for (var i = 0; i < this.orders.length; i++) {
+      this.orders[i].oco = this.oco;
+      if (this.orders[i].ocoLegacy) delete this.orders[i].ocoLegacy;
+    }
     try { localStorage.setItem(OCO_KEY, this.oco ? '1' : '0'); } catch (e) { }
     this.onUpdate();
   };
@@ -887,15 +891,20 @@
     this.trades = restoredTrades.sort(function (a, b) { return a.exitTime - b.exitTime; });
     this.orders = (d.orders || []).slice();
     // 旧版挂单没有 oco 字段, 当时是隐式 OCO (一张成交撤销其余); 迁移时保留该语义,
-    // 但只作用于这些旧挂单本身, 不翻转全局 OCO 开关。
-    var legacyOrders = [];
+    // 只作用于这些旧挂单本身, 不翻转全局 OCO 开关。ocoLegacy 标记保证刷新后仍能识别它们,
+    // 直到用户手动切换 OCO 开关。
     for (i = 0; i < this.orders.length; i++) {
       var order = this.orders[i];
       if (!order || typeof order !== 'object') continue;
-      if (!Object.prototype.hasOwnProperty.call(order, 'oco')) legacyOrders.push(order);
-      order.oco = this.oco;
+      if (!Object.prototype.hasOwnProperty.call(order, 'oco')) {
+        order.oco = true;
+        order.ocoLegacy = true;
+      } else if (order.ocoLegacy) {
+        order.oco = true;
+      } else {
+        order.oco = this.oco;
+      }
     }
-    for (i = 0; i < legacyOrders.length; i++) legacyOrders[i].oco = true;
     this.activePosId = d.activePosId != null && this._posIndex(d.activePosId) >= 0
       ? d.activePosId
       : (this.positions.length ? this.positions[this.positions.length - 1].id : null);

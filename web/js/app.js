@@ -1387,7 +1387,7 @@
     var posSig = b.positions.map(function (p) { return p.id + ':' + p.sl + ':' + p.tp; }).join(',');
     return (b.activePosId || '-') + '|' + posSig + '|' + b.trades.length + '|' +
       (b.trades.length ? b.trades[b.trades.length - 1].id : '') + '|' +
-      b.orders.map(function (o) { return o.id + ':' + (o.oco ? 1 : 0); }).join(',');
+      b.orders.map(function (o) { return o.id + ':' + (o.oco ? 1 : 0) + (o.ocoLegacy ? 'L' : ''); }).join(',');
   }
 
   function cancelTradeSave(pane) {

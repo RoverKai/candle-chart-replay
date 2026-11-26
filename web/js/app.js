@@ -6,11 +6,6 @@
   var LWC = window.LightweightCharts;
   var $ = function (id) { return document.getElementById(id); };
 
-  var COLORS = {
-    bg: '#131722', grid: '#1c2231', border: '#2a2e39',
-    up: '#26a69a', down: '#ef5350', text: '#b2b5be'
-  };
-
   var PERIOD_LABELS = {
     1: 'M1', 5: 'M5', 15: 'M15', 30: 'M30', 60: 'H1',
     240: 'H4', 1440: 'D1', 10080: 'W1', 43200: 'MN'
@@ -143,36 +138,16 @@
   /* ============================================================ 窗格 */
 
   function chartOptions() {
-    return {
-      autoSize: true,
-      layout: {
-        background: { type: 'solid', color: COLORS.bg },
-        textColor: COLORS.text,
-        fontSize: 11,
-        attributionLogo: false,
-        panes: { separatorColor: COLORS.border, separatorHoverColor: 'rgba(41,98,255,.35)', enableResize: true }
-      },
-      grid: { vertLines: { color: COLORS.grid }, horzLines: { color: COLORS.grid } },
-      crosshair: {
-        mode: 0,
-        vertLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#363c4e' },
-        horzLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#363c4e' }
-      },
-      rightPriceScale: { borderColor: COLORS.border, minimumWidth: 66 },
-      timeScale: {
-        borderColor: COLORS.border, timeVisible: true, secondsVisible: false,
-        rightOffset: 8, barSpacing: 7, shiftVisibleRangeOnNewBar: true
-      },
-      localization: {
-        locale: 'zh-CN',
-        timeFormatter: function (t) {
-          var d = new Date(t * 1000);
-          var p = function (n) { return n < 10 ? '0' + n : '' + n; };
-          return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes());
-        }
-      },
-      handleScroll: { vertTouchDrag: false }
+    var opts = ChartStyle.chartOptions();
+    opts.localization = {
+      locale: 'zh-CN',
+      timeFormatter: function (t) {
+        var d = new Date(t * 1000);
+        var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+        return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes());
+      }
     };
+    return opts;
   }
 
   function createPane(index) {
@@ -211,11 +186,7 @@
     $('chartGrid').appendChild(section);
 
     var chart = LWC.createChart(pane.els.host, chartOptions());
-    var candle = chart.addSeries(LWC.CandlestickSeries, {
-      upColor: COLORS.up, downColor: COLORS.down, borderVisible: false,
-      wickUpColor: COLORS.up, wickDownColor: COLORS.down,
-      priceLineColor: '#5d6b82', lastValueVisible: true
-    });
+    var candle = chart.addSeries(LWC.CandlestickSeries, ChartStyle.candleOptions());
     candle.priceScale('right').applyOptions({
       scaleMargins: { top: 0.06, bottom: state.volVisible ? 0.24 : 0.06 }
     });
@@ -229,6 +200,7 @@
     pane.chart = chart;
     pane.candle = candle;
     pane.volume = volume;
+    ChartStyle.applyToPane(pane);
 
     pane.drawLayer = new DrawingLayer({
       host: pane.els.wrap,
@@ -503,8 +475,9 @@
       var slice = pane.bars.slice(0, n);
       pane.candle.setData(slice);
       // 即使成交量隐藏也要同步数据: 否则切周期后 series 还留着旧周期的时间轴, 重新打开会跳视图
+      var vc = ChartStyle.volumeColors();
       pane.volume.setData(slice.map(function (b) {
-        return { time: b.time, value: b.volume, color: b.close >= b.open ? 'rgba(38,166,154,.42)' : 'rgba(239,83,80,.42)' };
+        return { time: b.time, value: b.volume, color: b.close >= b.open ? vc.up : vc.down };
       }));
       ['ma5', 'ma10', 'ma20', 'ma60', 'ema20'].forEach(function (k) {
         if (pane.overlays[k]) pane.overlays[k].setData(pick(ind[k], n));
@@ -524,9 +497,10 @@
       var bar = pane.bars[n - 1];
       if (!bar) return;
       pane.candle.update(bar);
+      var barVolColor = ChartStyle.volumeColors();
       pane.volume.update({
         time: bar.time, value: bar.volume,
-        color: bar.close >= bar.open ? 'rgba(38,166,154,.42)' : 'rgba(239,83,80,.42)'
+        color: bar.close >= bar.open ? barVolColor.up : barVolColor.down
       });
       ['ma5', 'ma10', 'ma20', 'ma60', 'ema20'].forEach(function (k) {
         if (pane.overlays[k] && ind[k][n - 1]) pane.overlays[k].update(ind[k][n - 1]);
@@ -1583,6 +1557,20 @@
     }
   }
 
+  function openChartSettings() {
+    closeStylePanel();
+    hideMenu();
+    $('indicatorPanel').hidden = true;
+    $('drawPanel').hidden = true;
+    ChartStyle.openDialog({
+      getPanes: function () { return state.panes; },
+      onApply: function (style, saved) {
+        hint(saved === false ? '样式已生效，但浏览器禁止了本地保存' : '图表样式已保存');
+      },
+      onHint: hint
+    });
+  }
+
   /* ============================================================ 交易面板 */
 
   function syncHistoryButton() {
@@ -1834,6 +1822,9 @@
       });
     }
 
+    ctxSep(menu);
+    ctxAdd(menu, 'flat', '图表设置…', '外观 / K线 / 十字光标', true, openChartSettings);
+
     menu.hidden = false;
     menu.style.left = '0px';
     menu.style.top = '0px';
@@ -1904,7 +1895,12 @@
 
     $('btnIndicators').addEventListener('click', function (e) { e.stopPropagation(); togglePop('indicatorPanel'); });
     $('btnDrawMenu').addEventListener('click', function (e) { e.stopPropagation(); togglePop('drawPanel'); });
+    $('btnChartSettings').addEventListener('click', function (e) {
+      e.stopPropagation();
+      openChartSettings();
+    });
     document.addEventListener('click', function (e) {
+      if (ChartStyle.isOpen()) return;
       if (!e.target.closest('.popover') && !e.target.closest('.ghost')) {
         $('indicatorPanel').hidden = true;
         $('drawPanel').hidden = true;
@@ -2035,6 +2031,7 @@
   }
 
   function onKey(e) {
+    if (ChartStyle.isOpen()) return;
     var undoKey = (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'z';
     // 面板打开时, Ctrl+Z 始终作用于面板所属窗格, 不依赖 activePane
     if (undoKey && styleCtx) {
@@ -2151,6 +2148,7 @@
     bindUI();
     syncHistoryButton();
     applySplit();
+    ChartStyle.applyAll(state.panes);   // 先把已保存主题的 CSS 变量铺上, 图表创建时再套用
 
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideMenu(); });
     document.addEventListener('mousedown', function (e) {
@@ -2164,12 +2162,14 @@
       get volume() { var p = p0(); return p ? p.volume : null; },
       get drawLayer() { var p = activePane(); return p ? p.drawLayer : null; },
       get book() { var p = activePane(); return p ? p.book : null; },
+      get chartStyle() { return ChartStyle.get(); },
       state: state,
       api: {
         setCursor: setCursor,
         open: doTrade,
         close: doClose,
         setLayout: setLayout,
+        openSettings: openChartSettings,
         placeOrder: function (type, price) {
           var p = activePane();
           return p ? p.book.placeOrder(type, price, { lots: p.book.lots, contract: p.book.contract }) : null;

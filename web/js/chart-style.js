@@ -733,7 +733,6 @@
     if (!initDialog()) return;
     hostOpts = opts || {};
     draft = clone(current);
-    previewStyle = draft;
     volumeTouched = false;
     openCursors = (hostOpts.getPanes ? hostOpts.getPanes() : []).map(function (p) { return p.cursor; });
     activeTab = 'appearance';
@@ -741,6 +740,8 @@
     renderNav();
     renderBody();
     updatePresetSelect();
+    // 上面的渲染全部成功后才启用预览态; 中途抛错时不会留下未提交的 draft
+    previewStyle = draft;
     ui.root.hidden = false;
     ui.body.scrollTop = 0;
     isOpen = true;

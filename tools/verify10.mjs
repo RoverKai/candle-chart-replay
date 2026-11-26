@@ -389,25 +389,40 @@ try {
   });
   await page.waitForTimeout(900);
   const replay = await page.evaluate(() => {
-    const dl = window.KR.drawLayer, bars = window.KR.state.bars, cur = window.KR.state.cursor;
+    const dl = window.KR.drawLayer, ts = window.KR.chart.timeScale();
+    const bars = window.KR.state.bars, cur = window.KR.state.cursor;
     const b = bars[cur], future = bars[cur + 1] || null;
     const old = { shift: dl.mods.shift, ctrl: dl.mods.ctrl };
     dl.mods.shift = false;
     dl.mods.ctrl = true;
     const futureHit = future ? dl._barForTime(future.time) : null;
-    const yHigh = dl.yOf(b.high);
-    const y = yHigh == null ? window.KR.chart.panes()[0].getHeight() / 2 : yHigh;
-    const res = dl._resolvePoint(window.KR.chart.timeScale().width() - 2, y, null, true);
+    const x = ts.width() - 2;
+    const fidx = Math.max(0, Math.min(bars.length - 1, Math.round(ts.coordinateToLogical(x))));
+    const fb = bars[fidx];
+    // 让鼠标 Y 明确落在未来这根 K 线的 OHLC 区间之外;
+    // 若未来区仍被吸附, 价格会变成它的某个 O/H/L/C, 下面的逐项比对就能抓住。
+    const height = window.KR.chart.panes()[0].getHeight();
+    let y = height / 2;
+    if (fb) {
+      const yHigh = dl.yOf(fb.high), yLow = dl.yOf(fb.low);
+      if (yHigh !== null && yHigh !== undefined) y = yHigh - 25;
+      else if (yLow !== null && yLow !== undefined) y = yLow + 25;
+    }
+    const res = dl._resolvePoint(x, y, null, true);
     dl.mods.shift = old.shift;
     dl.mods.ctrl = old.ctrl;
+    const pt = res && res.pt;
+    const ohlc = fb ? [fb.open, fb.high, fb.low, fb.close] : [];
     return {
       cursor: cur,
       barTime: b.time,
-      futureTime: future && future.time,
+      futureTime: fb && fb.time,
       lastTime: bars[bars.length - 1].time,
       futureHit: !!futureHit,
-      pt: res && res.pt,
-      snap: !!(res && res.snap)
+      pt: pt,
+      snap: res ? res.snap : undefined,
+      matchesFutureOHLC: !!(pt && ohlc.some((p) => Math.abs(p - pt.price) < 1e-9)),
+      futureOHLC: ohlc
     };
   });
   check('回放游标始终是数值下标', typeof replay.cursor === 'number' && Number.isFinite(replay.cursor),
@@ -415,10 +430,12 @@ try {
   check('游标之后的 K 线不参与吸附', replay.futureHit === false,
     `cursor=${replay.cursor} future=${replay.futureTime}`);
   check('游标右侧 Ctrl 落点进入未来区',
-    replay.pt && replay.pt.time > replay.barTime && replay.pt.time <= replay.lastTime,
-    replay.pt ? `t=${replay.pt.time} cursor=${replay.barTime} last=${replay.lastTime}` : 'null');
-  check('游标右侧 Ctrl 落点不吸附未来 OHLC', replay.snap === false,
-    replay.pt ? `snap=${replay.snap} p=${replay.pt.price}` : 'null');
+    replay.pt && replay.pt.time === replay.futureTime && replay.pt.time > replay.barTime &&
+      replay.pt.time <= replay.lastTime,
+    replay.pt ? `t=${replay.pt.time} future=${replay.futureTime} cursor=${replay.barTime}` : 'null');
+  check('游标右侧 Ctrl 落点不吸附未来 OHLC',
+    replay.pt && !replay.snap && replay.matchesFutureOHLC === false,
+    replay.pt ? `p=${replay.pt.price} ohlc=${JSON.stringify(replay.futureOHLC)} snap=${replay.snap}` : 'null');
 
   const fallback = await page.evaluate(() => {
     const dl = window.KR.drawLayer, bars = window.KR.state.bars;

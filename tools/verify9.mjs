@@ -186,6 +186,50 @@ check('起点在已播放区、终点在未来区的趋势线可完成',
 check('未来段落在画布上可见',
   futureDraw.painted && futureDraw.b && futureDraw.b.x <= futureDraw.pw,
   JSON.stringify(futureDraw.sample));
+
+// 两端都落在未来空白区的趋势线: 整条都在游标之后, 也必须真的画出来
+await page.click('button[data-tool="trend"]');
+const futureOnlyPlan = await page.evaluate(() => {
+  const dl = window.KR.drawLayer;
+  const height = window.KR.chart.panes()[0].getHeight();
+  const pw = dl.plotWidth();
+  return { x0: Math.round(pw * 0.72), y0: Math.round(height * 0.62),
+           x1: Math.round(pw * 0.9), y1: Math.round(height * 0.42) };
+});
+await page.mouse.click(box.x + futureOnlyPlan.x0, box.y + futureOnlyPlan.y0);
+await page.mouse.move(box.x + futureOnlyPlan.x1, box.y + futureOnlyPlan.y1, { steps: 6 });
+await page.waitForTimeout(120);
+await page.mouse.click(box.x + futureOnlyPlan.x1, box.y + futureOnlyPlan.y1);
+await page.waitForTimeout(350);
+const futureOnly = await page.evaluate(() => {
+  const dl = window.KR.drawLayer, bars = window.KR.state.bars;
+  const d = dl.drawings[dl.drawings.length - 1];
+  const indices = d.pts.map((p) => bars.findIndex((b) => b.time === p.time));
+  const a = dl.xyOf(d.pts[0]), b = dl.xyOf(d.pts[1]);
+  const ctx = document.getElementById('drawLayer').getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  let painted = false, sample = null;
+  if (a && b && b.x !== a.x) {
+    const ratio = 0.5;
+    const sx = Math.round((a.x + (b.x - a.x) * ratio) * dpr);
+    const sy = Math.round((a.y + (b.y - a.y) * ratio) * dpr);
+    sample = { x: Math.round(sx / dpr), y: Math.round(sy / dpr) };
+    for (let dx = -4; dx <= 4 && !painted; dx++) {
+      for (let dy = -4; dy <= 4 && !painted; dy++) {
+        const px = ctx.getImageData(sx + dx, sy + dy, 1, 1).data;
+        if (px[3] > 40) painted = true;
+      }
+    }
+  }
+  return { type: d.type, indices, cursor: window.KR.state.cursor, a, b, painted, sample, tool: dl.tool };
+});
+check('两端都在未来区的趋势线可完成',
+  futureOnly.type === 'trend' && futureOnly.tool === 'cursor' &&
+    futureOnly.indices[0] > futureOnly.cursor && futureOnly.indices[1] > futureOnly.cursor,
+  JSON.stringify(futureOnly.indices) + ' cursor=' + futureOnly.cursor);
+check('纯未来趋势线在画布上可见',
+  futureOnly.painted && futureOnly.a && futureOnly.b && futureOnly.b.x <= futureGeom.x + 1,
+  JSON.stringify(futureOnly.sample));
 await page.screenshot({ path: 'shots/20-future-endpoint.png' });
 
 // 大幅回退后坐标依然可算（不再变 null）

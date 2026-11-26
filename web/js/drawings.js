@@ -557,6 +557,7 @@
       }
     } else {
       // 拖端点: Ctrl 吸附 OHLC, Shift 锁价 (两者同时按住时 Shift 优先)
+      // 第四个参数只表示「允许 Ctrl 吸附」, 未按 Ctrl 时仍按鼠标位置自由落位
       var orig = this.drag.orig[this.drag.index];
       var np = this._resolvePoint(x, y, orig ? orig.price : null, true);
       if (np) {

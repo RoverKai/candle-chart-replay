@@ -281,6 +281,36 @@ try {
     check('Ctrl 拖端点不复制', snapped.count === 1, `count=${snapped.count}`);
   }
 
+  // ================= 5c. 不按 Ctrl 拖端点仍自由落位 =================
+  await reset();
+  const lineF = await drawTrend(P(0.30, 0.55), P(0.55, 0.45));
+  const epF = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+    return { p: dl.xyOf(d.pts[1]), count: dl.drawings.length };
+  }, lineF.id);
+  const targetF = await pickHighTarget(80);
+  if (!targetF) throw new Error('no target for free endpoint drag');
+  const yF = targetF.y + 10;
+  await page.mouse.move(...at(epF.p.x, epF.p.y));
+  await page.mouse.down();
+  await page.mouse.move(...at(targetF.x, yF), { steps: 10 });
+  const expectF = await page.evaluate(() => {
+    const dl = window.KR.drawLayer, h = dl.hover;
+    return dl.pointOf(h.x, h.y);
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const free = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+    return { pts: d.pts, count: dl.drawings.length };
+  }, lineF.id);
+  check('未按 Ctrl 拖端点按鼠标价位落位',
+    free.pts[1].time === expectF.time && Math.abs(free.pts[1].price - expectF.price) < 1e-9 && free.count === 1,
+    `期望 ${JSON.stringify(expectF)} 实际 ${JSON.stringify(free.pts[1])} count=${free.count}`);
+  check('未按 Ctrl 拖端点不吸附到 OHLC',
+    Math.abs(free.pts[1].price - targetF.price) > 1e-9,
+    `H=${targetF.price} 实际=${free.pts[1].price}`);
+
   // ================= 6. 回放游标之后不参与吸附 =================
   await page.evaluate(() => {
     const idx = Math.max(1, Math.floor(window.KR.state.bars.length * 0.6));

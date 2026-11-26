@@ -42,6 +42,31 @@ async function waitChart(fn, arg) {
   await page.waitForFunction(fn, arg, { timeout: 5000 });
 }
 
+/** 真实渲染层指纹: options() 正确不代表画布真的变了 */
+async function canvasHash(layer = 0) {
+  return page.evaluate((idx) => {
+    const host = document.getElementById('chartHost');
+    const c = host && host.querySelectorAll('canvas')[idx];
+    if (!c) return 0;
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < data.length; i += 127) {
+      h ^= data[i];
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }, layer);
+}
+
+async function waitCanvasChange(before, layer = 0, timeout = 4000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (await canvasHash(layer) !== before) return true;
+    await page.waitForTimeout(100);
+  }
+  return false;
+}
+
 async function chartState() {
   return page.evaluate(() => {
     const chart = window.KR.chart;
@@ -79,6 +104,14 @@ try {
     before.borderVisible === false && before.wickVisible === true,
     JSON.stringify({ bg: before.bg, up: before.up, border: before.borderVisible }));
 
+  const defaultLegend = await page.evaluate(() => ({
+    sym: getComputedStyle(document.querySelector('.legend .sym')).color,
+    kv: getComputedStyle(document.querySelector('.legend .kv b')).color
+  }));
+  check('默认主题图例保持旧版高亮配色',
+    defaultLegend.sym === 'rgb(230, 233, 240)' && defaultLegend.kv === 'rgb(205, 211, 224)',
+    JSON.stringify(defaultLegend));
+
   check('齿轮按钮打开图表设置', await openSettings());
   check('设置弹窗包含三个分类',
     JSON.stringify(await page.locator('#csNav button').allTextContents()) === JSON.stringify(['外观', 'K线', '十字光标']));
@@ -99,6 +132,7 @@ try {
   await page.screenshot({ path: 'shots/19-chart-settings.png' });
 
   // ---------- 网格 ----------
+  const gridOnHash = await canvasHash();
   await setField('gridVisible', false);
   await waitChart(() => {
     const g = window.KR.chart.options().grid;
@@ -106,6 +140,7 @@ try {
   });
   let st = await chartState();
   check('关闭网格后横竖网格线同时隐藏', st.gridVert.visible === false && st.gridHorz.visible === false);
+  check('关闭网格后真实画布确实重绘', await waitCanvasChange(gridOnHash));
   await setField('gridColor', '#ff0000');
   await setField('gridOpacity', 0.5);
   await page.selectOption('#csBody [data-field="gridStyle"]', '2');
@@ -119,6 +154,7 @@ try {
     st.gridVert.style === 2 && st.gridHorz.style === 2,
     JSON.stringify(st.gridVert));
   await setField('gridVisible', true);
+  await waitChart(() => window.KR.chart.options().grid.vertLines.visible === true);
 
   // ---------- 背景 + 取消回滚 ----------
   await setField('background', '#ffffff');
@@ -152,6 +188,13 @@ try {
   check('跟随涨跌色时只禁用取色框，不透明度滑杆仍可用',
     disabledUi.colorDisabled === true && disabledUi.rangeDisabled === false,
     JSON.stringify(disabledUi));
+
+  const wickOnHash = await canvasHash();
+  await setField('wickVisible', false);
+  await waitChart(() => window.KR.candle.options().wickVisible === false);
+  check('隐藏影线后真实画布确实重绘', await waitCanvasChange(wickOnHash));
+  await setField('wickVisible', true);
+  await waitChart(() => window.KR.candle.options().wickVisible === true);
 
   await setField('upColor', '#00ff00');
   await setField('upOpacity', 0.4);
@@ -216,6 +259,10 @@ try {
     `${st.up} / ${st.borderUp} / ${st.wickUp}`);
 
   // ---------- 十字光标 ----------
+  const chartBox = await page.locator('#chartWrap').boundingBox();
+  await page.mouse.move(chartBox.x + chartBox.width * 0.5, chartBox.y + chartBox.height * 0.5);
+  await page.waitForTimeout(250);
+  const crossOnHash = await canvasHash(1);
   check('刷新后仍可打开设置', await openSettings());
   await page.click('#csNav button[data-tab="crosshair"]');
   await page.waitForTimeout(120);
@@ -238,6 +285,9 @@ try {
     JSON.stringify(st.cross.vert));
   await page.click('#csApply');
   await page.waitForTimeout(200);
+  await page.mouse.move(chartBox.x + chartBox.width * 0.5, chartBox.y + chartBox.height * 0.5);
+  await page.waitForTimeout(250);
+  check('隐藏十字光标后真实画布确实重绘', await waitCanvasChange(crossOnHash, 1));
 
   // ---------- 恢复默认 ----------
   await openSettings();

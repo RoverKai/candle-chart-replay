@@ -530,8 +530,8 @@ button.ghost.icon svg { display: block; }
   pointer-events: none;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--chart-text-muted, var(--muted));
-  text-shadow: var(--chart-shadow, 0 1px 3px rgba(0, 0, 0, .8));
+  color: var(--muted);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
   display: flex;
   gap: 14px;
   align-items: flex-start;
@@ -541,19 +541,29 @@ button.ghost.icon svg { display: block; }
 
 .legend .sym {
   font-weight: 600;
-  color: var(--chart-text, #e6e9f0);
+  color: #e6e9f0;
   letter-spacing: .4px;
 }
 
 .legend .tf {
-  color: var(--chart-text-muted, var(--muted-2));
+  color: var(--muted-2);
   margin-left: 4px;
 }
 
 .legend .ohlc { display: flex; gap: 9px; }
-.legend .kv b { font-weight: 500; color: var(--chart-text-soft, #cdd3e0); }
+.legend .kv b { font-weight: 500; color: #cdd3e0; }
 .legend .up { color: var(--chart-up, var(--up)); }
 .legend .down { color: var(--chart-down, var(--down)); }
+
+/* 浅色背景下图例改用主题文字色, 并去掉深色描边 */
+.chart-grid.chart-light .legend {
+  color: var(--chart-text-muted, var(--muted));
+  text-shadow: none;
+}
+
+.chart-grid.chart-light .legend .sym { color: var(--chart-text, #e6e9f0); }
+.chart-grid.chart-light .legend .tf { color: var(--chart-text-muted, var(--muted-2)); }
+.chart-grid.chart-light .legend .kv b { color: var(--chart-text-soft, #cdd3e0); }
 
 .replay-badge {
   position: absolute;

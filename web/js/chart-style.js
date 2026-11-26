@@ -295,8 +295,7 @@
     grid.style.setProperty('--chart-text-muted', r.textMuted);
     grid.style.setProperty('--chart-up', style.upColor);
     grid.style.setProperty('--chart-down', style.downColor);
-    grid.style.setProperty('--chart-shadow', luminance(style.background) > 0.58
-      ? 'none' : '0 1px 3px rgba(0, 0, 0, .8)');
+    grid.classList.toggle('chart-light', luminance(style.background) > 0.58);
   }
 
   function applyToPane(pane, style) {

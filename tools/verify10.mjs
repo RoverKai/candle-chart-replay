@@ -213,8 +213,15 @@ try {
     const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
     return { p: dl.xyOf(d.pts[1]), pts: d.pts };
   }, lineM.id);
-  await page.mouse.move(...at(anchor.p.x + 5, anchor.p.y + 5));
+  await page.mouse.move(...at(anchor.p.x + 4, anchor.p.y + 4));
   await page.mouse.down();
+  const hitMode = await page.evaluate(() => {
+    const d = window.KR.drawLayer.drag;
+    return d ? { mode: d.mode, index: d.index, moved: d.moved } : null;
+  });
+  check('回归用例确实抓住端点且尚未移动',
+    !!hitMode && hitMode.mode === 'point' && hitMode.index === 1 && hitMode.moved === false,
+    JSON.stringify(hitMode));
   await page.keyboard.down('Control');
   await page.waitForTimeout(150);
   await page.mouse.up();

@@ -770,7 +770,8 @@
     if (!mode || !this.getPriceAt) return;
     var kind = typeof mode === 'string' ? mode : mode.kind;
     var id = typeof mode === 'string' ? this.activePosId : mode.id;
-    var p = this._posById(id) || this.activePosition();
+    // 拖哪笔改哪笔: 持仓在拖拽途中被平掉时直接忽略, 不能回退到别的持仓
+    var p = this._posById(id);
     if (!p) return;
     var price = this.getPriceAt(y);
     if (price === null || price === undefined || !isFinite(price)) return;
@@ -789,7 +790,7 @@
     if (!mode) return;
     var kind = typeof mode === 'string' ? mode : mode.kind;
     var id = typeof mode === 'string' ? this.activePosId : mode.id;
-    var p = this._posById(id) || this.activePosition();
+    var p = this._posById(id);
     if (!p) return;
     if (kind === 'sl-button' || kind === 'sl-line') {
       if (p.sl != null) this.onHint('止损设为 ' + p.sl.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + p.no + '）' : ''));
@@ -899,6 +900,11 @@
     // 旧版挂单没有 oco 字段, 当时是隐式 OCO (一张成交撤销其余); 迁移时保留该语义,
     // 只作用于这些旧挂单本身, 不翻转全局 OCO 开关。ocoLegacy 标记保证刷新后仍能识别它们,
     // 直到用户手动切换 OCO 开关; 手动切换过的用户在所有品种/周期都按开关执行。
+    // 多标签页时全局 OCO 开关可能已被其他页改过, 恢复时重新读取而不是用构造时的缓存值
+    var savedOco = null;
+    try { savedOco = localStorage.getItem(OCO_KEY); } catch (e) { }
+    if (savedOco === '1' || savedOco === '0') this.oco = savedOco === '1';
+
     var manualOco = false;
     try { manualOco = localStorage.getItem(OCO_MANUAL_KEY) === '1'; } catch (e) { }
     for (i = 0; i < this.orders.length; i++) {

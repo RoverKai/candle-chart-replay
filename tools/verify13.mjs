@@ -568,6 +568,52 @@ check('挂单自动成交不抢走选中持仓', st.count === 3 && st.active ===
 check('成交单已加入持仓列表', st.count === 3 && st.nos.indexOf(3) >= 0,
   JSON.stringify({ nos: st.nos }));
 
+/* ============================================================ 6i. restore 重新读取全局 OCO */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(14700));
+await page.waitForTimeout(300);
+const staleOco = await page.evaluate(() => {
+  const b = window.KR.book;
+  b.oco = false;                                  // 模拟当前页缓存了旧值
+  localStorage.setItem('kline-replay:oco', '1');   // 模拟另一个标签页已改成开启
+  const bar = window.KR.state.bars[window.KR.state.cursor];
+  b.restore({
+    positions: [],
+    trades: [],
+    orders: [
+      { id: 'stale-o1', type: 'buy_limit', price: bar.close - 2, lots: 0.1, contract: 100, sl: null, tp: null, oco: false, createdTime: bar.time }
+    ]
+  });
+  return { oco: b.oco, flags: b.orders.map((o) => o.oco === true) };
+});
+await page.waitForTimeout(300);
+check('restore 重新读取全局 OCO 开关',
+  staleOco.oco === true && staleOco.flags.every((v) => v), JSON.stringify(staleOco));
+await page.evaluate(() => window.KR.book.setOco(false));
+
+/* ============================================================ 6j. 拖拽中持仓被平掉 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(15500));
+await page.waitForTimeout(300);
+const dragBase = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+const dragA = await openPos(1, { sl: dragBase - 5 });
+await openPos(1, { sl: dragBase - 8 });
+await page.evaluate((id) => window.KR.book.setActivePosition(id), dragA.id);
+await page.waitForTimeout(250);
+const dragY = await page.evaluate((p) => window.KR.candle.priceToCoordinate(p), dragBase - 2);
+const dragRes = await page.evaluate(([aId, y]) => {
+  const b = window.KR.book;
+  const other = b.positions.filter((p) => p.id !== aId)[0];
+  const before = other ? other.sl : null;
+  b._dragMode = { kind: 'sl-button', id: aId };
+  b.closePosition(aId, '测试');
+  b.dragMove(300, y);
+  b.dragEnd();
+  return { before, after: b.positions.length ? b.positions[0].sl : null, count: b.positions.length };
+}, [dragA.id, dragY]);
+check('拖拽中持仓被平掉不会改到别的单',
+  dragRes.count === 1 && dragRes.after === dragRes.before, JSON.stringify(dragRes));
+
 /* ============================================================ 7. 多窗格持仓互不影响 */
 await resetBook();
 await openPos(1);

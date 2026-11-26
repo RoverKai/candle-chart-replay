@@ -126,6 +126,8 @@ try {
     undo: window.KR.drawLayer.undoStack.length
   }), undoGeo);
   check('样式修改建立撤销点', afterStyleEdit.undo === panelBase + 1, JSON.stringify(afterStyleEdit));
+  // 模拟真实操作: 滑块获得焦点后按 Ctrl+Z, 不能让 onKey 的 input 早退吞掉撤销
+  await page.locator('#styleBody input[data-field="opacity"]').focus();
   await page.keyboard.press('Control+z');
   await page.waitForTimeout(150);
   const afterUndo = await page.evaluate((g) => {

@@ -1998,10 +1998,21 @@
   }
 
   function onKey(e) {
+    var undoKey = (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'z';
+    var inStylePanel = !!styleCtx && e.target && e.target.closest && e.target.closest('#stylePanel');
+    // 面板内控件会抢走焦点, 但 Ctrl+Z 仍应撤销画线样式
+    if (undoKey && inStylePanel) {
+      var sp = activePane();
+      if (sp && sp.drawLayer.handleKey(e)) {
+        syncStylePanelAfterUndo();
+        e.preventDefault();
+        return;
+      }
+    }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     var p = activePane();
     if (p && p.drawLayer.handleKey(e)) {
-      if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'z') syncStylePanelAfterUndo();
+      if (undoKey) syncStylePanelAfterUndo();
       e.preventDefault();
       return;
     }

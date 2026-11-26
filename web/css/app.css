@@ -246,6 +246,203 @@ button.ghost.sm { padding: 4px 9px; font-size: 12px; }
   font: 11px ui-monospace, Consolas, monospace;
 }
 
+/* ------------------------------------------------------------ 画线样式 */
+
+.style-panel {
+  width: 264px;
+  padding: 8px 8px 10px;
+}
+
+.style-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.style-head span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #eef1f7;
+}
+
+.style-x {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.style-x:hover { color: var(--text); }
+
+.style-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.style-row > span { flex: 0 0 auto; }
+
+.style-row input[type="color"] {
+  width: 38px;
+  height: 23px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.style-row input[type="color"]::-webkit-color-swatch-wrapper,
+.fib-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+
+.style-row input[type="color"]::-webkit-color-swatch,
+.fib-row input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.style-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.style-range input[type="range"] {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.style-val {
+  flex: 0 0 34px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.style-hint {
+  padding: 4px 6px 2px;
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.fib-levels {
+  max-height: 238px;
+  overflow: auto;
+  padding: 2px 2px 4px;
+}
+
+.fib-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 3px 4px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  letter-spacing: .4px;
+}
+
+.fib-head .fib-h-vis { width: 14px; flex: 0 0 auto; }
+.fib-head .fib-h-ratio { flex: 1 1 auto; }
+.fib-head .fib-h-color { width: 34px; flex: 0 0 auto; text-align: right; }
+.fib-head .fib-h-del { width: 21px; flex: 0 0 auto; }
+
+.fib-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 5px;
+}
+
+.fib-row:hover { background: var(--panel-3); }
+
+.fib-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.fib-row input[type="number"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 64px;
+  background: #10141d;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.fib-row input[type="number"]:focus { border-color: var(--accent); }
+
+.fib-row input[type="color"] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.fib-del {
+  width: 21px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  color: var(--muted-2);
+  font-size: 15px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.fib-del:hover { color: var(--down); background: rgba(239, 83, 80, .12); }
+
+.style-btn {
+  width: 100%;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.style-btn:hover { border-color: var(--accent); }
+.style-btn + .style-btn { margin-top: 6px; }
+
+.style-foot {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
+
 /* ------------------------------------------------------------ workspace */
 
 .workspace {

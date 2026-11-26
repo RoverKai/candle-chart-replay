@@ -75,6 +75,16 @@
     startTime: 0          // 回放起点 (时间戳, 跨窗格共用)
   };
 
+  var styleCtx = null;      // { pane, id, dirty }: 正在编辑的画线样式
+  var drawDefaults = {};    // 用户保存的每种工具的新画线默认样式
+  var DRAW_DEFAULTS_KEY = 'kline-replay:draw-defaults';
+  var DRAW_TYPE_LABELS = {
+    trend: '趋势线', ray: '射线', hline: '水平线', vline: '垂直线',
+    rect: '矩形', fib: '斐波那契', text: '文字', measure: '测量'
+  };
+  var FIB_NEW_COLORS = ['#f23645', '#ff9800', '#4caf50', '#089981', '#2962ff', '#ab47bc', '#787b86'];
+  var FIB_ADD_SUGGEST = [-0.5, 0.5, 0.618, -0.618, 1.618, 2.618, 0.786, 0.382, 0.236];
+
   function p0() { return state.panes[0]; }
   function activePane() { return state.panes[state.activeIndex] || state.panes[0]; }
 
@@ -227,9 +237,16 @@
       series: candle,
       getBars: function () { return pane.bars; },
       getCursor: function () { return pane.cursor; },
-      onChange: function () { persistDrawings(pane); },
-      onHint: hint
+      onChange: function () {
+        persistDrawings(pane);
+        if (styleCtx && styleCtx.pane === pane && !pane.drawLayer.getDrawing(styleCtx.id)) {
+          closeStylePanel();
+        }
+      },
+      onHint: hint,
+      onEdit: function (id) { openStylePanel(pane, id); }
     });
+    pane.drawLayer.setDefaults(drawDefaults);
 
     pane.book = new TradeBook({
       showHistory: state.showHistory,
@@ -285,6 +302,7 @@
   }
 
   function destroyPane(pane) {
+    if (styleCtx && styleCtx.pane === pane) closeStylePanel();
     cancelTradeSave(pane);
     if (pane.resizeObserver) {
       pane.resizeObserver.disconnect();
@@ -297,6 +315,7 @@
 
   function setActive(index) {
     if (state.activeIndex === index) return;
+    closeStylePanel();
     state.activeIndex = index;
     state.panes.forEach(function (p) {
       p.els.section.classList.toggle('active', p.index === index);
@@ -1043,11 +1062,299 @@
   }
 
   function loadDrawings(pane) {
+    if (styleCtx && styleCtx.pane === pane) closeStylePanel();
     var raw = null;
     try { raw = localStorage.getItem(drawKey(pane)); } catch (e) { }
     var list = [];
     if (raw) { try { list = JSON.parse(raw) || []; } catch (e) { list = []; } }
     pane.drawLayer.setDrawings(list);
+  }
+
+  /* ============================================================ 画线样式 */
+
+  function readDrawDefaults() {
+    try {
+      var v = JSON.parse(localStorage.getItem(DRAW_DEFAULTS_KEY) || '{}');
+      return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function styleEl(tag, cls, text) {
+    var el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+
+  function pctOf(v, fallback) {
+    var n = Number(v);
+    if (!isFinite(n)) n = fallback;
+    return Math.max(0, Math.min(100, Math.round(n * 100)));
+  }
+
+  function fmtLevel(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return '0';
+    return String(Math.round(n * 10000) / 10000);
+  }
+
+  function styleColorRow(label, field, value) {
+    var row = styleEl('div', 'style-row');
+    row.appendChild(styleEl('span', '', label));
+    var input = document.createElement('input');
+    input.type = 'color';
+    input.dataset.field = field;
+    input.value = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#2962ff';
+    row.appendChild(input);
+    return row;
+  }
+
+  function styleRangeRow(label, field, value, fallback, min) {
+    var row = styleEl('div', 'style-row');
+    row.appendChild(styleEl('span', '', label));
+    var wrap = styleEl('div', 'style-range');
+    var range = document.createElement('input');
+    range.type = 'range';
+    range.min = String(min);
+    range.max = '100';
+    range.step = '1';
+    range.dataset.field = field;
+    var pct = pctOf(value, fallback);
+    range.value = String(pct);
+    var val = styleEl('span', 'style-val', pct + '%');
+    wrap.appendChild(range);
+    wrap.appendChild(val);
+    row.appendChild(wrap);
+    return row;
+  }
+
+  function currentStyleLevels() {
+    if (!styleCtx) return [];
+    return styleCtx.pane.drawLayer.getFibLevels(styleCtx.id) || [];
+  }
+
+  function closeStylePanel() {
+    styleCtx = null;
+    var el = $('stylePanel');
+    if (el) el.hidden = true;
+  }
+
+  function openStylePanel(pane, id) {
+    if (!pane || !pane.drawLayer) return;
+    if (!pane.drawLayer.getDrawing(id)) return;
+    styleCtx = { pane: pane, id: id, dirty: false };
+    pane.drawLayer.select(id);
+    $('indicatorPanel').hidden = true;
+    $('drawPanel').hidden = true;
+    $('stylePanel').hidden = false;
+    renderStylePanel();
+  }
+
+  function renderStylePanel() {
+    if (!styleCtx) return;
+    var layer = styleCtx.pane.drawLayer;
+    var d = layer.getDrawing(styleCtx.id);
+    if (!d) { closeStylePanel(); return; }
+
+    var label = DRAW_TYPE_LABELS[d.type] || '画线';
+    $('styleTitle').textContent = label + '样式';
+    var body = $('styleBody');
+    body.innerHTML = '';
+
+    if (d.type === 'rect') {
+      body.appendChild(styleColorRow('边框颜色', 'color', d.color));
+      body.appendChild(styleColorRow('填充颜色', 'fillColor', d.fillColor || d.color));
+      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity === undefined ? 1 : d.opacity, 1, 5));
+      body.appendChild(styleRangeRow('填充透明度', 'fillOpacity',
+        d.fillOpacity === undefined ? 0.1 : d.fillOpacity, 0.1, 0));
+    } else if (d.type === 'fib') {
+      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity === undefined ? 1 : d.opacity, 1, 5));
+      body.appendChild(styleEl('div', 'style-hint', '比例可填任意数值，例如 0.5、-0.5、1.618'));
+
+      var head = styleEl('div', 'fib-head');
+      head.appendChild(styleEl('span', 'fib-h-vis', ''));
+      head.appendChild(styleEl('span', 'fib-h-ratio', '比例'));
+      head.appendChild(styleEl('span', 'fib-h-color', '颜色'));
+      head.appendChild(styleEl('span', 'fib-h-del', ''));
+      body.appendChild(head);
+
+      var levels = currentStyleLevels();
+      var list = styleEl('div', 'fib-levels');
+      levels.forEach(function (lv, i) {
+        var row = styleEl('div', 'fib-row');
+
+        var vis = document.createElement('input');
+        vis.type = 'checkbox';
+        vis.dataset.field = 'levelVisible';
+        vis.dataset.index = String(i);
+        vis.checked = lv.visible !== false;
+        vis.title = '显示 / 隐藏这条水平位';
+
+        var ratio = document.createElement('input');
+        ratio.type = 'number';
+        ratio.step = 'any';
+        ratio.dataset.field = 'levelRatio';
+        ratio.dataset.index = String(i);
+        ratio.value = fmtLevel(lv.ratio);
+        ratio.title = '斐波那契比例';
+
+        var color = document.createElement('input');
+        color.type = 'color';
+        color.dataset.field = 'levelColor';
+        color.dataset.index = String(i);
+        color.value = /^#[0-9a-f]{6}$/i.test(lv.color || '') ? lv.color : '#9598a1';
+        color.title = '这条水平位的颜色';
+
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'fib-del';
+        del.dataset.act = 'fib-del';
+        del.dataset.index = String(i);
+        del.textContent = '×';
+        del.title = '删除水平位';
+
+        row.appendChild(vis);
+        row.appendChild(ratio);
+        row.appendChild(color);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+      body.appendChild(list);
+
+      var add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'style-btn';
+      add.dataset.act = 'fib-add';
+      add.textContent = '+ 添加水平位';
+      body.appendChild(add);
+    } else {
+      body.appendChild(styleColorRow(d.type === 'text' ? '文字颜色' : '线条颜色', 'color', d.color));
+      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity === undefined ? 1 : d.opacity, 1, 5));
+    }
+
+    var foot = styleEl('div', 'style-foot');
+    var save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'style-btn';
+    save.dataset.act = 'save-default';
+    save.textContent = '存为“' + label + '”新画线默认';
+    foot.appendChild(save);
+    body.appendChild(foot);
+  }
+
+  function commitStylePatch(patch) {
+    if (!styleCtx || !patch) return;
+    var layer = styleCtx.pane.drawLayer;
+    if (!styleCtx.dirty) {
+      if (!layer.beginStyleEdit(styleCtx.id)) return;
+      styleCtx.dirty = true;
+    }
+    layer.updateStyle(styleCtx.id, patch);
+  }
+
+  function onStyleInput(e) {
+    if (!styleCtx) return;
+    var t = e.target;
+    var field = t && t.dataset ? t.dataset.field : null;
+    if (!field) return;
+
+    if (field === 'opacity' || field === 'fillOpacity') {
+      var n = parseInt(t.value, 10);
+      if (!isFinite(n)) return;
+      var val = t.parentNode ? t.parentNode.querySelector('.style-val') : null;
+      if (val) val.textContent = n + '%';
+      var p = {};
+      p[field] = n / 100;
+      commitStylePatch(p);
+      return;
+    }
+
+    if (field === 'color' || field === 'fillColor') {
+      var c = {};
+      c[field] = t.value;
+      commitStylePatch(c);
+      return;
+    }
+
+    if (field === 'levelColor' || field === 'levelRatio' || field === 'levelVisible') {
+      var levels = currentStyleLevels();
+      var i = parseInt(t.dataset.index, 10);
+      if (!levels[i]) return;
+      if (field === 'levelColor') {
+        levels[i].color = t.value;
+      } else if (field === 'levelRatio') {
+        var r = parseFloat(t.value);
+        if (!isFinite(r)) return;
+        levels[i].ratio = r;
+      } else {
+        levels[i].visible = !!t.checked;
+      }
+      commitStylePatch({ levels: levels });
+    }
+  }
+
+  function addFibLevel() {
+    if (!styleCtx) return;
+    var levels = currentStyleLevels();
+    var used = {};
+    levels.forEach(function (lv) { used[fmtLevel(lv.ratio)] = true; });
+    var ratio = null;
+    for (var i = 0; i < FIB_ADD_SUGGEST.length; i++) {
+      if (!used[fmtLevel(FIB_ADD_SUGGEST[i])]) { ratio = FIB_ADD_SUGGEST[i]; break; }
+    }
+    if (ratio === null) ratio = 0.5;
+    levels.push({
+      ratio: ratio,
+      color: FIB_NEW_COLORS[levels.length % FIB_NEW_COLORS.length],
+      visible: true
+    });
+    commitStylePatch({ levels: levels });
+    renderStylePanel();
+    var inputs = $('styleBody').querySelectorAll('.fib-row input[type="number"]');
+    var last = inputs[inputs.length - 1];
+    if (last) { last.focus(); last.select(); }
+  }
+
+  function deleteFibLevel(index) {
+    if (!styleCtx) return;
+    var levels = currentStyleLevels();
+    if (!levels[index]) return;
+    levels.splice(index, 1);
+    commitStylePatch({ levels: levels });
+    renderStylePanel();
+  }
+
+  function saveStyleAsDefault() {
+    if (!styleCtx) return;
+    var layer = styleCtx.pane.drawLayer;
+    var d = layer.getDrawing(styleCtx.id);
+    if (!d) return;
+    var style = {};
+    ['color', 'fillColor', 'opacity', 'fillOpacity', 'width'].forEach(function (k) {
+      if (d[k] !== undefined) style[k] = d[k];
+    });
+    if (d.type === 'rect' && !style.fillColor) style.fillColor = d.color;
+    if (d.type === 'fib') style.levels = layer.getFibLevels(d.id);
+    drawDefaults[d.type] = style;
+    try { localStorage.setItem(DRAW_DEFAULTS_KEY, JSON.stringify(drawDefaults)); } catch (e) { }
+    state.panes.forEach(function (p) { if (p.drawLayer) p.drawLayer.setDefaults(drawDefaults); });
+    hint('已保存为“' + (DRAW_TYPE_LABELS[d.type] || '画线') + '”的新画线默认样式');
+  }
+
+  function onStyleClick(e) {
+    if (!styleCtx) return;
+    var btn = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!btn) return;
+    // 添加/删除会重绘面板, 被点击的按钮随即脱离 DOM;
+    // 若事件继续冒泡, document 的“点外部关闭”检查会误判并关掉面板。
+    e.preventDefault();
+    e.stopPropagation();
+    var act = btn.dataset.act;
+    if (act === 'fib-add') addFibLevel();
+    else if (act === 'fib-del') deleteFibLevel(parseInt(btn.dataset.index, 10));
+    else if (act === 'save-default') saveStyleAsDefault();
   }
 
   var tradeSaveTimers = {};
@@ -1430,6 +1737,15 @@
     head.textContent = perLabel(pane.period) + ' · 价格 ' + price.toFixed(dg);
     menu.appendChild(head);
 
+    var drawHit = pane.drawLayer && pane.drawLayer.hitAt ? pane.drawLayer.hitAt(localX, localY) : null;
+    if (drawHit) {
+      var hitDrawing = pane.drawLayer.getDrawing(drawHit.id);
+      ctxAdd(menu, 'flat', '画线样式…',
+        hitDrawing ? (DRAW_TYPE_LABELS[hitDrawing.type] || '') : '', true,
+        function () { openStylePanel(pane, drawHit.id); });
+      ctxSep(menu);
+    }
+
     ctxAdd(menu, 'buy', '市价买入', book.lots + ' 手 @ ' + close.toFixed(dg), !hasPos, function () { doTrade(1); });
     ctxAdd(menu, 'sell', '市价卖出', book.lots + ' 手 @ ' + close.toFixed(dg), !hasPos, function () { doTrade(-1); });
 
@@ -1539,6 +1855,7 @@
       if (!e.target.closest('.popover') && !e.target.closest('.ghost')) {
         $('indicatorPanel').hidden = true;
         $('drawPanel').hidden = true;
+        closeStylePanel();
         hideMenu();
       }
     });
@@ -1565,6 +1882,17 @@
       var p = activePane();
       if (!p || !p.drawLayer.deleteSelected()) hint('先点选一条画线');
     });
+    $('btnStyleSel').addEventListener('click', function () {
+      var p = activePane();
+      if (!p) return;
+      var id = p.drawLayer.selected;
+      if (!id) { hint('先点选一条画线'); return; }
+      openStylePanel(p, id);
+    });
+    $('btnStyleClose').addEventListener('click', closeStylePanel);
+    $('styleBody').addEventListener('input', onStyleInput);
+    $('styleBody').addEventListener('change', onStyleInput);
+    $('styleBody').addEventListener('click', onStyleClick);
     $('btnClearAll').addEventListener('click', function () {
       var p = activePane();
       if (!p || !p.drawLayer.drawings.length) return;
@@ -1644,6 +1972,7 @@
     var el = $(id);
     var other = id === 'indicatorPanel' ? $('drawPanel') : $('indicatorPanel');
     other.hidden = true;
+    closeStylePanel();
     el.hidden = !el.hidden;
   }
 
@@ -1710,6 +2039,7 @@
         var list = JSON.parse(reader.result);
         if (!Array.isArray(list)) throw new Error('格式不正确');
         p.drawLayer.setDrawings(list);
+        closeStylePanel();
         persistDrawings(p);
         hint('已导入 ' + list.length + ' 条画线');
       } catch (err) {
@@ -1744,6 +2074,7 @@
 
   function boot() {
     state.showHistory = readHistoryVisible();
+    drawDefaults = readDrawDefaults();
     buildToolbar();
     bindUI();
     syncHistoryButton();

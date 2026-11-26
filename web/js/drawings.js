@@ -320,6 +320,7 @@
       var x = e.clientX - r.left;
       var y = e.clientY - r.top;
       self.mods.shift = !!e.shiftKey;
+      // Ctrl 或 macOS 的 ⌘(Meta) 都视为吸附修饰键
       self.mods.ctrl = !!(e.ctrlKey || e.metaKey);
 
       if (self.tool === 'cursor') {
@@ -342,13 +343,16 @@
         self.selected = hit.id;
         self._snapshot();
         var d = self._find(hit.id);
+        var twoPoint = d && d.pts.length >= 2;
         self.drag = {
           id: hit.id,
           mode: hit.mode,
           index: hit.index,
           start: { x: x, y: y },
           orig: JSON.parse(JSON.stringify(d.pts)),
-          clone: !!(e.ctrlKey || e.metaKey),  // Ctrl/⌘ + 拖动 → 复制一份再拖
+          // 两点工具端点 → Ctrl 吸附; 线体 / 单点工具(文字、水平线、垂直线) → Ctrl 仍是复制
+          clone: !!(e.ctrlKey || e.metaKey) && (hit.mode === 'body' || !twoPoint),
+          canSnap: hit.mode === 'point' && twoPoint,
           moved: false
         };
         self.redraw();
@@ -432,9 +436,14 @@
         changed = true;
       }
       var cloneKey = e.ctrlKey || e.metaKey;
+      var hoverDraw = hovering ? self._find(hovering.id) : null;
+      var copyHover = cloneKey && hovering &&
+        (hovering.mode === 'body' || (hoverDraw && hoverDraw.pts.length < 2));
       host.style.cursor = self.tool !== 'cursor'
         ? 'crosshair'
-        : (hovering ? (cloneKey ? 'copy' : (hovering.mode === 'point' ? 'nwse-resize' : 'move')) : '');
+        : (hovering
+          ? (copyHover ? 'copy' : (hovering.mode === 'point' ? 'nwse-resize' : 'move'))
+          : '');
 
       if (self.pending || changed || (self.tool !== 'cursor' && self.mods.ctrl)) self.requestRedraw();
     };
@@ -553,9 +562,10 @@
         }
       }
     } else {
-      // 光标模式下 Ctrl 仍是复制, 所以拖端点只让 Shift 锁价
+      // 拖端点: Ctrl 吸附 OHLC, Shift 锁价 (两者同时按住时 Shift 优先)
+      // 第四个参数只表示「允许 Ctrl 吸附」, 未按 Ctrl 时仍按鼠标位置自由落位
       var orig = this.drag.orig[this.drag.index];
-      var np = this._resolvePoint(x, y, orig ? orig.price : null, false);
+      var np = this._resolvePoint(x, y, orig ? orig.price : null, this.drag.canSnap);
       if (np) {
         var dd = this._find(this.drag.id);
         dd.pts[this.drag.index] = np.pt;
@@ -683,6 +693,13 @@
       var hov = this._resolvePoint(this.hover.x, this.hover.y, null, true);
       var hb = hov ? this.xyOf(hov.pt) : null;
       if (hov && hov.snap && hb) this._paintSnap(hov, hb);
+    }
+    if (this.drag && this.drag.canSnap && this.hover && this.mods.ctrl) {
+      // 拖端点时同样标出会吸附到哪个价位
+      var dOrig = this.drag.orig[this.drag.index];
+      var dRes = this._resolvePoint(this.hover.x, this.hover.y, dOrig ? dOrig.price : null, true);
+      var dXY = dRes ? this.xyOf(dRes.pt) : null;
+      if (dRes && dRes.snap && dXY) this._paintSnap(dRes, dXY);
     }
     ctx.restore();
   };

@@ -341,6 +341,14 @@ await page.setViewportSize({ width: 900, height: 800 });
 await page.waitForTimeout(300);
 check('窄屏从宽屏缩回后高亮周期仍可见', await activePeriodVisible());
 
+// 回放中改变布局会加载新窗格, 收尾的 setCutoff 应把全局角标重新点亮
+await page.click('#layoutSwitch button[data-layout="1"]');
+await page.waitForTimeout(500);
+await page.click('#layoutSwitch button[data-layout="2"]');
+await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(600);
+check('回放中切布局后角标仍可见', !(await page.isHidden('#replayBadge')));
+
 await page.click('#btnDrawMenu');
 await page.waitForTimeout(200);
 const menu = await page.evaluate(() => {

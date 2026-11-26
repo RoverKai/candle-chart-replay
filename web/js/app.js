@@ -396,14 +396,6 @@
       arr[i].setAttribute('aria-pressed', on ? 'true' : 'false');
       if (on) activeBtn = arr[i];
     }
-    // 窄屏下周期条会横向滚动: 切换活动窗格或恢复靠后的周期时,
-    // 把当前高亮按钮滚回可视区, 否则顶栏看不出当前周期。
-    if (activeBtn && host.scrollWidth > host.clientWidth) {
-      var hr = host.getBoundingClientRect();
-      var br = activeBtn.getBoundingClientRect();
-      if (br.left < hr.left) host.scrollLeft -= (hr.left - br.left) + 2;
-      else if (br.right > hr.right) host.scrollLeft += (br.right - hr.right) + 2;
-    }
     var multi = state.panes.length > 1 && !!pane;
     host.title = multi
       ? '周期：作用于窗格 ' + (pane.index + 1) + '（点图表切换窗格）'
@@ -412,6 +404,15 @@
     if (scope) {
       scope.hidden = !multi;
       if (multi) scope.textContent = '窗格 ' + (pane.index + 1);
+    }
+    // 窄屏下周期条会横向滚动: 切换活动窗格或恢复靠后的周期时,
+    // 把当前高亮按钮滚回可视区, 否则顶栏看不出当前周期。
+    // 注意先更新「窗格 N」徽标再校正, 徽标出现会再压窄周期条。
+    if (activeBtn && host.scrollWidth > host.clientWidth) {
+      var hr = host.getBoundingClientRect();
+      var br = activeBtn.getBoundingClientRect();
+      if (br.left < hr.left) host.scrollLeft -= (hr.left - br.left) + 2;
+      else if (br.right > hr.right) host.scrollLeft += (br.right - hr.right) + 2;
     }
   }
 

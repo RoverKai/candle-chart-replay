@@ -13,6 +13,8 @@
   var ORDER_COLOR = { buy_limit: '#26a69a', sell_limit: '#ef5350', buy_stop: '#26a69a', sell_stop: '#ef5350' };
 
   var OCO_KEY = 'kline-replay:oco';
+  // 用户手动切换过 OCO 后, 旧挂单的隐式 OCO 例外在所有品种/周期都失效
+  var OCO_MANUAL_KEY = 'kline-replay:oco-manual';
 
   // 各品种默认合约规模 (1 手对应的标的数量)
   var CONTRACT_DEFAULT = {
@@ -97,7 +99,10 @@
       this.orders[i].oco = this.oco;
       if (this.orders[i].ocoLegacy) delete this.orders[i].ocoLegacy;
     }
-    try { localStorage.setItem(OCO_KEY, this.oco ? '1' : '0'); } catch (e) { }
+    try {
+      localStorage.setItem(OCO_KEY, this.oco ? '1' : '0');
+      localStorage.setItem(OCO_MANUAL_KEY, '1');
+    } catch (e) { }
     this.onUpdate();
   };
 
@@ -892,11 +897,16 @@
     this.orders = (d.orders || []).slice();
     // 旧版挂单没有 oco 字段, 当时是隐式 OCO (一张成交撤销其余); 迁移时保留该语义,
     // 只作用于这些旧挂单本身, 不翻转全局 OCO 开关。ocoLegacy 标记保证刷新后仍能识别它们,
-    // 直到用户手动切换 OCO 开关。
+    // 直到用户手动切换 OCO 开关; 手动切换过的用户在所有品种/周期都按开关执行。
+    var manualOco = false;
+    try { manualOco = localStorage.getItem(OCO_MANUAL_KEY) === '1'; } catch (e) { }
     for (i = 0; i < this.orders.length; i++) {
       var order = this.orders[i];
       if (!order || typeof order !== 'object') continue;
-      if (!Object.prototype.hasOwnProperty.call(order, 'oco')) {
+      if (manualOco) {
+        order.oco = this.oco;
+        if (order.ocoLegacy) delete order.ocoLegacy;
+      } else if (!Object.prototype.hasOwnProperty.call(order, 'oco')) {
         order.oco = true;
         order.ocoLegacy = true;
       } else if (order.ocoLegacy) {

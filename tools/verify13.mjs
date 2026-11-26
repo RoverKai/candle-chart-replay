@@ -47,6 +47,7 @@ async function resetBook() {
     const b = window.KR.book;
     b.clear();
     b.setOco(false);
+    try { localStorage.removeItem('kline-replay:oco-manual'); } catch (e) {}
   });
   await page.waitForTimeout(250);
 }
@@ -492,7 +493,41 @@ st = await bookState();
 check('旧版挂单一张成交撤销其余', st.count === 1 && st.orders === 0,
   JSON.stringify({ count: st.count, orders: st.orders }));
 
-/* ============================================================ 6f. 持仓编号跨刷新不重复 */
+/* ============================================================ 6f. 手动切换 OCO 后旧挂单例外跨 key 失效 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(14500));
+await page.waitForTimeout(300);
+const manualC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+const manualOco = await page.evaluate((c) => {
+  const b = window.KR.book;
+  b.setOco(false);      // 模拟用户在另一个品种/周期手动切换 OCO
+  const bar = window.KR.state.bars[window.KR.state.cursor];
+  b.restore({
+    positions: [],
+    trades: [],
+    orders: [
+      { id: 'manual-o1', type: 'buy_limit', price: c - 2, lots: 0.1, contract: 100, sl: null, tp: null, createdTime: bar.time },
+      { id: 'manual-o2', type: 'buy_limit', price: c - 6, lots: 0.1, contract: 100, sl: null, tp: null, createdTime: bar.time }
+    ]
+  });
+  return {
+    oco: b.oco,
+    flags: b.orders.map((o) => o.oco === true),
+    markers: b.orders.map((o) => o.ocoLegacy === true)
+  };
+}, manualC);
+await page.waitForTimeout(300);
+check('手动切换 OCO 后旧挂单不再例外',
+  manualOco.oco === false && manualOco.flags.every((v) => !v) && manualOco.markers.every((v) => !v),
+  JSON.stringify(manualOco));
+check('手动切换 OCO 后开关保持关闭', !(await page.isChecked('#ocoInput')));
+await jumpToLow(manualC - 6);
+await page.waitForTimeout(300);
+st = await bookState();
+check('手动切换 OCO 后旧挂单各自成交', st.count === 2 && st.orders === 0,
+  JSON.stringify({ count: st.count, orders: st.orders }));
+
+/* ============================================================ 6g. 持仓编号跨刷新不重复 */
 await resetBook();
 await page.evaluate(() => window.KR.api.setCursor(14000));
 await page.waitForTimeout(300);

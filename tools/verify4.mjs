@@ -102,7 +102,7 @@ await page.evaluate(() => window.KR.api.close());
 await page.evaluate(() => { window.KR.book.cancelAllOrders(); window.KR.api.setCursor(12000); });
 await page.waitForTimeout(400);
 
-// ---- 6. OCO：两张反向挂单，一张成交另一张撤销
+// ---- 6. 多张挂单独立触发：一张成交后其余挂单保留（多持仓模式）
 const c2 = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
 await page.evaluate((c) => {
   const b = window.KR.book;
@@ -120,9 +120,11 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(400);
 st = await state();
-check('OCO 一张成交', st.pos === true && st.orders === 0, JSON.stringify(st));
+check('一张挂单成交', st.pos === true, JSON.stringify(st));
+check('成交后其余挂单保留', st.orders === 1, JSON.stringify(st));
 
 await page.evaluate(() => window.KR.api.close());
+await page.evaluate(() => window.KR.book.cancelAllOrders());
 await page.waitForTimeout(250);
 
 // ---- 7. 面板取消挂单

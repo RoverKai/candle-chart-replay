@@ -22,6 +22,12 @@
     <select id="symbolSelect" title="品种"></select>
   </div>
 
+  <div class="field">
+    <span class="cap">周期</span>
+    <div class="periods" id="periodBar" role="group" aria-label="K线周期"></div>
+    <span class="pane-scope" id="periodScope" hidden></span>
+  </div>
+
   <div class="layout-switch" id="layoutSwitch" title="窗格数量">
     <button data-layout="1" class="active">1</button>
     <button data-layout="2">2</button>
@@ -33,6 +39,9 @@
     <button data-split="col" class="active" title="上下分屏">上下</button>
     <button data-split="row" title="左右分屏">左右</button>
   </div>
+
+  <div class="replay-badge" id="replayBadge"
+       title="正在回放：当前之后的 K 线已隐藏" hidden>回放中</div>
 
   <div class="grow"></div>
 

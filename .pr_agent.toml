@@ -6,7 +6,12 @@
 # 给评审者一点领域背景；没有 AGENTS.md，用 README 的用法/接口说明
 repo_context_files = ["README.md"]
 repo_context_from_default_branch = true
-repo_context_max_lines = 200
+# main 上的 README 是 351 行；200 行会在「模拟交易怎么用」中间截断，
+# 数据说明 / 目录结构 / API / 自动化验证 / 故障排查（210-351 行）全都进不了上下文。
+# 500 = 渲染时扣掉 6 行包装标签后仍有 492 行可用，整份 README 完整装下（不触发 truncation）。
+# 注意这是「上下文文件的行数」，和 diff 抢同一个 prompt token 预算，别设成近似无限：
+# 只有 max_model_tokens 才是总闸，而且 100K+ 的输入在 ai_timeout=300 下也跑不完。
+repo_context_max_lines = 500
 
 [ignore]
 # 锁文件、构建产物、第三方源码、二进制与一次性脚本：diff 大且没有评审价值

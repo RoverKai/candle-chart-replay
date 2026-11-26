@@ -238,6 +238,66 @@ try {
   await page.waitForTimeout(300);
   const n2 = await page.evaluate(() => window.KR.drawLayer.drawings.length);
   check('光标模式 Ctrl 拖端点仍是复制', n2 === ep.count + 1, `count=${n2} 期望 ${ep.count + 1}`);
+
+  // ================= 6. 回放游标之后不参与吸附 =================
+  await page.evaluate(() => {
+    const idx = Math.max(1, Math.floor(window.KR.state.bars.length * 0.6));
+    window.KR.api.setCursor(idx);
+  });
+  await page.waitForTimeout(900);
+  const replay = await page.evaluate(() => {
+    const dl = window.KR.drawLayer, bars = window.KR.state.bars, cur = window.KR.state.cursor;
+    const b = bars[cur], future = bars[cur + 1] || null;
+    const old = { shift: dl.mods.shift, ctrl: dl.mods.ctrl };
+    dl.mods.shift = false;
+    dl.mods.ctrl = true;
+    const futureHit = future ? dl._barForTime(future.time) : null;
+    const yHigh = dl.yOf(b.high);
+    const y = yHigh == null ? window.KR.chart.panes()[0].getHeight() / 2 : yHigh;
+    const res = dl._resolvePoint(window.KR.chart.timeScale().width() - 2, y, null, true);
+    dl.mods.shift = old.shift;
+    dl.mods.ctrl = old.ctrl;
+    return {
+      cursor: cur,
+      barTime: b.time,
+      futureTime: future && future.time,
+      futureHit: !!futureHit,
+      pt: res && res.pt,
+      levels: [b.open, b.high, b.low, b.close]
+    };
+  });
+  check('游标之后的 K 线不参与吸附', replay.futureHit === false,
+    `cursor=${replay.cursor} future=${replay.futureTime}`);
+  check('游标右侧 Ctrl 落点仍钳在游标内',
+    replay.pt && replay.pt.time === replay.barTime &&
+      replay.levels.some((p) => Math.abs(p - replay.pt.price) < 1e-9),
+    replay.pt ? `t=${replay.pt.time} p=${replay.pt.price}` : 'null');
+
+  // ================= 7. 销毁窗格时释放监听 =================
+  const disposeCheck = await page.evaluate(async () => {
+    window.KR.api.setLayout(2);
+    await new Promise((resolve) => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        const panes = window.KR.state.panes;
+        if ((panes.length === 2 && panes[1].bars.length) || Date.now() - started > 8000) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 50);
+    });
+    const victim = window.KR.state.panes[1] && window.KR.state.panes[1].drawLayer;
+    window.KR.api.setLayout(1);
+    await new Promise((r) => setTimeout(r, 1200));
+    return victim ? {
+      disposed: !!victim._disposed,
+      stopped: !!victim._syncStopped,
+      connected: victim.host.isConnected,
+      panes: window.KR.state.panes.length
+    } : null;
+  });
+  check('销毁窗格后旧画布层已释放', !!disposeCheck && disposeCheck.disposed && disposeCheck.stopped &&
+    disposeCheck.connected === false && disposeCheck.panes === 1, JSON.stringify(disposeCheck));
 } catch (e) {
   bad.push('EXCEPTION: ' + (e && e.message ? e.message : String(e)));
 }

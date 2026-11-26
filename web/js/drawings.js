@@ -58,6 +58,8 @@
     this.w = 0;
     this.h = 0;
     this._raf = 0;
+    this._disposed = false;
+    this._syncStopped = false;
     this._bind();
     this.resize();
   }
@@ -65,6 +67,7 @@
   /* ------------------------------------------------------------ 基础 */
 
   DrawingLayer.prototype.resize = function () {
+    if (this._disposed) return;
     var dpr = window.devicePixelRatio || 1;
     var w = this.canvas.clientWidth || this.host.clientWidth;
     var h = this.canvas.clientHeight || this.host.clientHeight;
@@ -79,7 +82,7 @@
 
   DrawingLayer.prototype.requestRedraw = function () {
     var self = this;
-    if (this._raf) return;
+    if (this._disposed || this._raf) return;
     this._raf = requestAnimationFrame(function () {
       self._raf = 0;
       self.redraw();
@@ -156,11 +159,15 @@
     return { time: bars[idx].time, price: price };
   };
 
-  /** 按时间取完整数据里的那根 K 线 (pointOf 已把时间对齐到 bar) */
+  /** 按时间取已播放范围内的 K 线。
+      回放游标之后的 bar 不参与吸附, 避免把未来 K 线的 OHLC 泄漏到预览/锚点。 */
   DrawingLayer.prototype._barForTime = function (time) {
     var bars = this.getBars ? this.getBars() : null;
     if (!bars || !bars.length) return null;
-    var lo = 0, hi = bars.length - 1;
+    var hi = bars.length - 1;
+    if (this.getCursor) hi = Math.min(hi, this.getCursor());
+    if (hi < 0) return null;
+    var lo = 0;
     while (lo <= hi) {
       var mid = (lo + hi) >> 1;
       if (bars[mid].time === time) return bars[mid];
@@ -470,6 +477,23 @@
     window.addEventListener('keyup', this._onMods, true);
   };
 
+  /** 窗格销毁时解除全局监听并停掉 rAF 循环, 防止旧实例继续响应按键/重绘 */
+  DrawingLayer.prototype.dispose = function () {
+    if (this._disposed) return;
+    this._disposed = true;
+    this._syncStopped = true;
+    if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; }
+    this.host.removeEventListener('mousedown', this._onDown, true);
+    window.removeEventListener('mousemove', this._onMove, true);
+    window.removeEventListener('mouseup', this._onUp, true);
+    this.host.removeEventListener('mouseleave', this._onLeave, true);
+    window.removeEventListener('keydown', this._onMods, true);
+    window.removeEventListener('keyup', this._onMods, true);
+    this.drag = null;
+    this.pending = null;
+    this.hover = null;
+  };
+
   /** 拖动中的落点计算 (鼠标移动、或按住/松开修饰键时调用) */
   DrawingLayer.prototype._updateDrag = function (x, y) {
     if (!this.drag) return;
@@ -620,7 +644,7 @@
 
   DrawingLayer.prototype.redraw = function () {
     var ctx = this.ctx;
-    if (!ctx || !this.w) return;
+    if (this._disposed || !ctx || !this.w) return;
     this.redrawCount = (this.redrawCount || 0) + 1;
     ctx.clearRect(0, 0, this.w, this.h);
     ctx.save();
@@ -921,6 +945,7 @@
     var self = this;
     var last = null;
     function tick() {
+      if (self._syncStopped) return;
       var sig = self._viewSignature();
       if (sig !== last) {
         last = sig;

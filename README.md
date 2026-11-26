@@ -121,6 +121,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1 -Port 9000
 - 两点工具落下第一点后，按住 `Shift` 移动鼠标：价格锁在第一点，只横向移动；拖端点同样锁原价，拖整条线则整条水平平移（`Shift` 与 `Ctrl` 同时按住时，横向锁定优先）。
 - 按住 `Ctrl` 移动鼠标：取鼠标所在 K 线（横坐标最近的一根）的 `open / high / low / close`，按指针与四个价位的屏幕距离选最近的一个吸附。预览里会画一个黄圈并标出 `H 3638.18` 这样的目标价位，松手前就能确认。
 - 光标模式（当前没有在画线）下 `Ctrl` 仍然只用于复制，不触发吸附；画布上放置画线时，第一点、第二点以及单点工具（水平线/垂直线/文字）都支持 `Ctrl` 吸附。
+- 回放状态下 `Ctrl` 吸附只在已播放的 K 线里查找；鼠标移到游标右侧也会贴回游标那根，不会提前暴露未来价格。
 
 画线锚点存的是 `{时间, 价格}`，所以缩放、平移、回放都不会跑位。
 
@@ -291,7 +292,7 @@ npm run verify:sl    # 15 项断言（SL/TP 按钮拖拽、跟踪止损、按现
 npm run verify:copy  # 13 项断言（Ctrl 复制、播放位置记忆、按周期隔离）
 npm run verify:layout # 33 项断言（1/2/3/4 窗格、上下/左右分屏、拖动分隔线、独立周期、跨窗格时间轴同步）
 npm run verify:future # 8 项断言（回放到锚点之前画线不消失、像素级确认已绘制）
-npm run verify:snap  # 15 项断言（Shift 横向锁定、Ctrl 吸附 O/H/L/C、光标模式 Ctrl 复制不受影响）
+npm run verify:snap  # 18 项断言（Shift/Ctrl 定位、回放边界、窗格销毁释放）
 ```
 
 使用系统已安装的 Edge/Chrome（`CHANNEL=msedge` 可改），不额外下载浏览器。

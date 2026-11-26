@@ -284,6 +284,7 @@
 
   function destroyPane(pane) {
     cancelTradeSave(pane);
+    if (pane.drawLayer) pane.drawLayer.dispose();
     try { pane.chart.remove(); } catch (e) { /* ignore */ }
     if (pane.els.section.parentNode) pane.els.section.parentNode.removeChild(pane.els.section);
   }

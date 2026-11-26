@@ -310,7 +310,7 @@ npm run verify:copy  # 13 项断言（Ctrl 复制、播放位置记忆、按周�
 npm run verify:layout # 33 项断言（1/2/3/4 窗格、上下/左右分屏、拖动分隔线、独立周期、跨窗格时间轴同步）
 npm run verify:future # 8 项断言（回放到锚点之前画线不消失、像素级确认已绘制）
 npm run verify:snap  # 32 项断言（Shift/Ctrl/⌘ 定位、端点吸附、单点复制、回放边界、窗格销毁释放）
-npm run verify:style # 23 项断言（样式入口、矩形配色/旧矩形同步、fib 自定义与非法值、旧数据兼容、撤销同步/空栈、measure 无入口、存储失败提示、持久化）
+npm run verify:style # 24 项断言（样式入口、矩形配色/旧矩形同步、低透明度显示、fib 自定义与非法值、旧数据兼容、撤销同步/空栈、measure 无入口、存储失败提示、持久化）
 ```
 
 使用系统已安装的 Edge/Chrome（`CHANNEL=msedge` 可改），不额外下载浏览器。

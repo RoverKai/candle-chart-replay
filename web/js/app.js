@@ -1121,7 +1121,7 @@
     range.max = '100';
     range.step = '1';
     range.dataset.field = field;
-    var pct = pctOf(value, fallback);
+    var pct = (value === null || value === undefined) ? pctOf(fallback, fallback) : pctOf(value, fallback);
     range.value = String(pct);
     var val = styleEl('span', 'style-val', pct + '%');
     wrap.appendChild(range);
@@ -1177,11 +1177,10 @@
     if (d.type === 'rect') {
       body.appendChild(styleColorRow('边框颜色', 'color', d.color));
       body.appendChild(styleColorRow('填充颜色', 'fillColor', d.fillColor || d.color));
-      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity === undefined ? 1 : d.opacity, 1, 5));
-      body.appendChild(styleRangeRow('填充透明度', 'fillOpacity',
-        d.fillOpacity === undefined ? 0.1 : d.fillOpacity, 0.1, 0));
+      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity, 1, 0));
+      body.appendChild(styleRangeRow('填充透明度', 'fillOpacity', d.fillOpacity, 0.1, 0));
     } else if (d.type === 'fib') {
-      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity === undefined ? 1 : d.opacity, 1, 5));
+      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity, 1, 0));
       body.appendChild(styleEl('div', 'style-hint', '比例可填任意数值，例如 0.5、-0.5、1.618'));
 
       var head = styleEl('div', 'fib-head');
@@ -1242,7 +1241,7 @@
       body.appendChild(add);
     } else {
       body.appendChild(styleColorRow(d.type === 'text' ? '文字颜色' : '线条颜色', 'color', d.color));
-      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity === undefined ? 1 : d.opacity, 1, 5));
+      body.appendChild(styleRangeRow('透明度', 'opacity', d.opacity, 1, 0));
     }
 
     var foot = styleEl('div', 'style-foot');
@@ -2026,15 +2025,14 @@
 
   function onKey(e) {
     var undoKey = (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'z';
-    var inStylePanel = !!styleCtx && e.target && e.target.closest && e.target.closest('#stylePanel');
-    // 面板内控件会抢走焦点, 但 Ctrl+Z 仍应撤销画线样式
-    if (undoKey && inStylePanel) {
-      var sp = activePane();
+    // 面板打开时, Ctrl+Z 始终作用于面板所属窗格, 不依赖 activePane
+    if (undoKey && styleCtx) {
+      var sp = styleCtx.pane;
       if (sp && sp.drawLayer.handleKey(e)) {
         syncStylePanelAfterUndo();
         e.preventDefault();
-        return;
       }
+      return;
     }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     var p = activePane();

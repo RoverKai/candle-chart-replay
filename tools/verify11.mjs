@@ -271,7 +271,7 @@ try {
     const d = {
       id: 'legacy-rect', type: 'rect',
       pts: [{ time: bars[i0].time, price: bars[i0].close }, { time: bars[i1].time, price: bars[i1].high }],
-      color: '#26a69a', width: 1.4, opacity: 1, fillOpacity: 0.1
+      color: '#26a69a', width: 1.4, opacity: 0.02, fillOpacity: 0.1
     };
     dl.setDrawings([d]);
     const a = dl.xyOf(d.pts[0]), b = dl.xyOf(d.pts[1]);
@@ -279,6 +279,13 @@ try {
   });
   await page.mouse.dblclick(box.x + legacyRect.x, box.y + legacyRect.y);
   await page.waitForTimeout(150);
+  const lowOpacity = await page.evaluate(() => {
+    const input = document.querySelector('#styleBody input[data-field="opacity"]');
+    const label = input && input.parentNode ? input.parentNode.querySelector('.style-val') : null;
+    return { value: input && input.value, label: label && label.textContent };
+  });
+  check('低透明度按实际值显示', lowOpacity.value === '2' && lowOpacity.label === '2%',
+    JSON.stringify(lowOpacity));
   const fillBefore = await page.locator('#styleBody input[data-field="fillColor"]').inputValue();
   await page.locator('#styleBody input[data-field="color"]').evaluate((el) => {
     el.value = '#ff0000';

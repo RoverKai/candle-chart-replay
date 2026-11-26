@@ -1747,10 +1747,13 @@
     var drawHit = pane.drawLayer && pane.drawLayer.hitAt ? pane.drawLayer.hitAt(localX, localY) : null;
     if (drawHit) {
       var hitDrawing = pane.drawLayer.getDrawing(drawHit.id);
-      ctxAdd(menu, 'flat', '画线样式…',
-        hitDrawing ? (DRAW_TYPE_LABELS[hitDrawing.type] || '') : '', true,
-        function () { openStylePanel(pane, drawHit.id); });
-      ctxSep(menu);
+      // measure 是拖拽期间的临时对象, 不应出现样式入口 (hitAt 本身也会跳过它)
+      if (hitDrawing && hitDrawing.type !== 'measure') {
+        ctxAdd(menu, 'flat', '画线样式…',
+          DRAW_TYPE_LABELS[hitDrawing.type] || '', true,
+          function () { openStylePanel(pane, drawHit.id); });
+        ctxSep(menu);
+      }
     }
 
     ctxAdd(menu, 'buy', '市价买入', book.lots + ' 手 @ ' + close.toFixed(dg), !hasPos, function () { doTrade(1); });

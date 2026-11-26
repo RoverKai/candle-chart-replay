@@ -607,6 +607,8 @@
       var r = host.getBoundingClientRect();
       var hit = self._hitTest(e.clientX - r.left, e.clientY - r.top);
       if (!hit) return;
+      var hitDrawing = self._find(hit.id);
+      if (!hitDrawing || hitDrawing.type === 'measure') return;
       e.preventDefault();
       e.stopPropagation();
       self.selected = hit.id;

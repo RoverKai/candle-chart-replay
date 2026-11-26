@@ -475,8 +475,9 @@
       var slice = pane.bars.slice(0, n);
       pane.candle.setData(slice);
       // 即使成交量隐藏也要同步数据: 否则切周期后 series 还留着旧周期的时间轴, 重新打开会跳视图
+      var vc = ChartStyle.volumeColors();
       pane.volume.setData(slice.map(function (b) {
-        return { time: b.time, value: b.volume, color: ChartStyle.volumeColor(b) };
+        return { time: b.time, value: b.volume, color: b.close >= b.open ? vc.up : vc.down };
       }));
       ['ma5', 'ma10', 'ma20', 'ma60', 'ema20'].forEach(function (k) {
         if (pane.overlays[k]) pane.overlays[k].setData(pick(ind[k], n));
@@ -496,9 +497,10 @@
       var bar = pane.bars[n - 1];
       if (!bar) return;
       pane.candle.update(bar);
+      var barVolColor = ChartStyle.volumeColors();
       pane.volume.update({
         time: bar.time, value: bar.volume,
-        color: ChartStyle.volumeColor(bar)
+        color: bar.close >= bar.open ? barVolColor.up : barVolColor.down
       });
       ['ma5', 'ma10', 'ma20', 'ma60', 'ema20'].forEach(function (k) {
         if (pane.overlays[k] && ind[k][n - 1]) pane.overlays[k].update(ind[k][n - 1]);

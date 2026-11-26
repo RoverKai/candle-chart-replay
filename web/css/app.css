@@ -1484,10 +1484,7 @@ body.resizing-col * { cursor: row-resize !important; }
 
 .cs-field {
   padding: 4px 0 6px;
-  transition: opacity .12s;
 }
-
-.cs-field.is-disabled { opacity: .42; }
 
 .cs-field-head {
   display: flex;
@@ -1511,7 +1508,7 @@ body.resizing-col * { cursor: row-resize !important; }
   cursor: pointer;
 }
 
-.cs-color:disabled { cursor: default; }
+.cs-color:disabled { opacity: .35; cursor: default; }
 
 .cs-color::-webkit-color-swatch-wrapper { padding: 2px; }
 .cs-color::-webkit-color-swatch { border: 0; border-radius: 3px; }

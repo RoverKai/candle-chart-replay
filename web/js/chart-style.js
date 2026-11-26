@@ -271,13 +271,17 @@
     };
   }
 
-  function volumeBarColor(style, bar) {
-    style = style || current;
-    return rgba(bar.close >= bar.open ? style.upColor : style.downColor, style.volumeOpacity);
+  /** 成交量只有涨 / 跌两种颜色: 每次整列重建前算一次, 避免逐根解析 hex / 拼 rgba */
+  function volumeColorsOf(style) {
+    style = style || activeStyle();
+    return {
+      up: rgba(style.upColor, style.volumeOpacity),
+      down: rgba(style.downColor, style.volumeOpacity)
+    };
   }
 
-  /** 设置弹窗打开时, 回放推进产生的成交量柱也要用预览色, 不能被已提交样式刷回旧色 */
-  function activeVolumeStyle() {
+  /** 弹窗打开时用 draft 预览, 其他时候用已提交样式 */
+  function activeStyle() {
     return previewStyle || current;
   }
 
@@ -300,16 +304,22 @@
     pane.chart.applyOptions(appearanceOptions(style));
     if (pane.candle) pane.candle.applyOptions(candleOptions(style));
     if (pane.els && pane.els.wrap) pane.els.wrap.style.background = style.background;
+    // 画线 / 持仓标签由独立 canvas 绘制, 浅色主题下需要重绘成深色文字
+    if (pane.drawLayer) pane.drawLayer.requestRedraw();
   }
 
   function recolorVolume(pane, style) {
     if (!pane || !pane.volume || !pane.bars || !pane.bars.length) return;
     var cursor = typeof pane.cursor === 'number' ? pane.cursor : pane.bars.length - 1;
     var n = Math.max(0, Math.min(pane.bars.length, cursor + 1));
+    var colors = volumeColorsOf(style);
     var data = new Array(n);
     for (var i = 0; i < n; i++) {
       var b = pane.bars[i];
-      data[i] = { time: b.time, value: b.volume, color: volumeBarColor(style, b) };
+      data[i] = {
+        time: b.time, value: b.volume,
+        color: b.close >= b.open ? colors.up : colors.down
+      };
     }
     try { pane.volume.setData(data); } catch (e) { /* 窗格正在销毁 */ }
   }
@@ -583,9 +593,8 @@
       var spec = String(input.dataset.enabledWhen).split(':');
       var expect = spec[1] === 'true';
       var on = !!draft[spec[0]] === expect;
+      // 只禁用取色框; 同一行的不透明度滑杆仍然有效, 不能被整行灰掉
       input.disabled = !on;
-      var row = input.closest('.cs-field');
-      if (row) row.classList.toggle('is-disabled', !on);
     });
   }
 
@@ -1016,7 +1025,8 @@
     openDialog: openDialog,
     chartOptions: function () { return chartOptions(current); },
     candleOptions: function () { return candleOptions(current); },
-    volumeColor: function (bar) { return volumeBarColor(activeVolumeStyle(), bar); },
+    volumeColors: function () { return volumeColorsOf(activeStyle()); },
+    isLight: function () { return luminance(activeStyle().background) > 0.58; },
     applyToPane: function (pane) { applyToPane(pane, current); },
     applyAll: function (panes) { applyAll(panes, current); },
     sanitize: sanitize

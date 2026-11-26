@@ -144,6 +144,14 @@ try {
     (await page.locator('#csBody [data-field="borderColor"]').count()) === 1 &&
     (await page.locator('#csBody [data-field="wickColor"]').count()) === 1 &&
     (await page.locator('#csBody [data-field="volumeOpacity"]').count()) === 1);
+  const disabledUi = await page.evaluate(() => {
+    const color = document.querySelector('#csBody [data-field="borderColor"]');
+    const range = document.querySelector('#csBody [data-field="borderOpacity"]');
+    return { colorDisabled: color.disabled, rangeDisabled: range.disabled };
+  });
+  check('跟随涨跌色时只禁用取色框，不透明度滑杆仍可用',
+    disabledUi.colorDisabled === true && disabledUi.rangeDisabled === false,
+    JSON.stringify(disabledUi));
 
   await setField('upColor', '#00ff00');
   await setField('upOpacity', 0.4);
@@ -324,7 +332,9 @@ try {
     st.text === '#131722',
     JSON.stringify({ bg: st.bg, up: st.up, text: st.text }));
   const legendColor = await page.evaluate(() => getComputedStyle(document.querySelector('.legend .sym')).color);
-  check('图例文字颜色跟随浅色背景', legendColor === 'rgb(19, 23, 34)', legendColor);
+  const lightTheme = await page.evaluate(() => window.ChartStyle.isLight());
+  check('图例文字颜色跟随浅色背景', legendColor === 'rgb(19, 23, 34)' && lightTheme === true,
+    `${legendColor} / isLight=${lightTheme}`);
   await page.click('#csApply');
   await page.waitForTimeout(200);
 

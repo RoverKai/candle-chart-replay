@@ -477,24 +477,27 @@
     var rightEdge = tag.x - gap;
     var tpX = rightEdge - bw;
     var slX = tpX - gap - bw;
+    var light = !!(window.ChartStyle && window.ChartStyle.isLight && window.ChartStyle.isLight());
 
     this._slBtn = { x: slX, y: y - bh / 2, w: bw, h: bh };
     this._tpBtn = { x: tpX, y: y - bh / 2, w: bw, h: bh };
 
-    this._pill(ctx, layer, this._slBtn, y, p.sl != null, 'SL', '#ef5350', '#ff8a87', 'rgba(239,83,80,.26)');
-    this._pill(ctx, layer, this._tpBtn, y, p.tp != null, 'TP', '#26a69a', '#4fd8c6', 'rgba(38,166,154,.26)');
+    this._pill(ctx, layer, this._slBtn, y, p.sl != null, 'SL',
+      '#ef5350', light ? '#c62828' : '#ff8a87', light ? 'rgba(239,83,80,.14)' : 'rgba(239,83,80,.26)', light);
+    this._pill(ctx, layer, this._tpBtn, y, p.tp != null, 'TP',
+      '#26a69a', light ? '#00796b' : '#4fd8c6', light ? 'rgba(38,166,154,.14)' : 'rgba(38,166,154,.26)', light);
   };
 
-  TradeBook.prototype._pill = function (ctx, layer, r, y, active, text, stroke, fg, bgActive) {
+  TradeBook.prototype._pill = function (ctx, layer, r, y, active, text, stroke, fg, bgActive, light) {
     ctx.save();
-    ctx.fillStyle = active ? bgActive : 'rgba(120,134,150,.16)';
+    ctx.fillStyle = active ? bgActive : (light ? 'rgba(90,102,120,.10)' : 'rgba(120,134,150,.16)');
     layer._roundRect(r.x, r.y, r.w, r.h, 3);
     ctx.fill();
-    ctx.strokeStyle = active ? stroke : 'rgba(150,163,180,.55)';
+    ctx.strokeStyle = active ? stroke : (light ? 'rgba(70,80,95,.55)' : 'rgba(150,163,180,.55)');
     ctx.lineWidth = 1;
     layer._roundRect(r.x, r.y, r.w, r.h, 3);
     ctx.stroke();
-    ctx.fillStyle = active ? fg : '#9aa5b8';
+    ctx.fillStyle = active ? fg : (light ? '#4f5b6e' : '#9aa5b8');
     ctx.font = 'bold 10px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

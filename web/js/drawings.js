@@ -144,7 +144,9 @@
   };
 
   /** 已播放范围的最后一根 K 线下标。
-      getCursor 缺失或返回无效值时退回全量, 避免 Math.min 把范围误钳到首根。 */
+      getCursor 由 app 注入 pane.cursor: 初始 0, 回放/显示全部时始终是数值下标;
+      只有数据未装载时可能为空, 此时还没有回放边界, 退回全量是安全的。
+      注: 不能用 Math.min(hi, null), 那会把范围误钳到首根。 */
   DrawingLayer.prototype._playedLimit = function (bars) {
     var hi = bars.length - 1;
     if (!this.getCursor) return hi;
@@ -346,7 +348,8 @@
           index: hit.index,
           start: { x: x, y: y },
           orig: JSON.parse(JSON.stringify(d.pts)),
-          clone: !!(e.ctrlKey || e.metaKey)   // Ctrl/⌘ + 拖动 → 复制一份再拖
+          clone: !!(e.ctrlKey || e.metaKey),  // Ctrl/⌘ + 拖动 → 复制一份再拖
+          moved: false
         };
         self.redraw();
         return;
@@ -359,7 +362,7 @@
         var measureStart = self._resolvePoint(x, y, null, true);
         self._measureStart = measureStart ? measureStart.pt : null;
         self.ephemeral = null;
-        self.drag = { measure: true, start: { x: x, y: y } };
+        self.drag = { measure: true, start: { x: x, y: y }, moved: false };
         return;
       }
 
@@ -412,6 +415,7 @@
       }
 
       if (self.drag) {
+        self.drag.moved = true;
         self._updateDrag(x, y);
         return;
       }
@@ -475,9 +479,12 @@
       self.mods.shift = shift;
       self.mods.ctrl = ctrl;
       if (self.drag) {
-        // 还没真正移动时不在这里生成复制副本, 避免 Ctrl+按下后碰一下修饰键就多一条
-        if (self.hover && !self.drag.clone) self._updateDrag(self.hover.x, self.hover.y);
-        else self.requestRedraw();
+        // 还没真正移动时不重算落点, 避免按下端点后碰一下修饰键就把锚点挪走
+        if (self.hover && self.drag.moved && !self.drag.clone) {
+          self._updateDrag(self.hover.x, self.hover.y);
+        } else {
+          self.requestRedraw();
+        }
       } else if (self.pending || self.tool !== 'cursor') {
         self.requestRedraw();
       }

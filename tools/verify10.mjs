@@ -206,6 +206,28 @@ try {
   check('Shift 拖整条时间改变',
     bodyAfter[0].time !== body.pts[0].time && bodyAfter[1].time !== body.pts[1].time);
 
+  // ================= 4b. 没移动鼠标时按修饰键不改锚点 =================
+  await reset();
+  const lineM = await drawTrend(P(0.30, 0.42), P(0.62, 0.58));
+  const anchor = await page.evaluate((id) => {
+    const dl = window.KR.drawLayer, d = dl.drawings.find((x) => x.id === id);
+    return { p: dl.xyOf(d.pts[1]), pts: d.pts };
+  }, lineM.id);
+  await page.mouse.move(...at(anchor.p.x + 5, anchor.p.y + 5));
+  await page.mouse.down();
+  await page.keyboard.down('Control');
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(200);
+  const afterPress = await page.evaluate((id) => {
+    return window.KR.drawLayer.drawings.find((x) => x.id === id).pts;
+  }, lineM.id);
+  check('未移动时按修饰键不改锚点',
+    afterPress[1].time === anchor.pts[1].time &&
+      Math.abs(afterPress[1].price - anchor.pts[1].price) < 1e-9,
+    `before=${JSON.stringify(anchor.pts[1])} after=${JSON.stringify(afterPress[1])}`);
+
   // ================= 5. 光标模式 Ctrl 仍然复制 =================
   await reset();
   const line5 = await drawTrend(P(0.30, 0.50), P(0.60, 0.40));
@@ -266,6 +288,8 @@ try {
       levels: [b.open, b.high, b.low, b.close]
     };
   });
+  check('回放游标始终是数值下标', typeof replay.cursor === 'number' && Number.isFinite(replay.cursor),
+    `cursor=${replay.cursor}`);
   check('游标之后的 K 线不参与吸附', replay.futureHit === false,
     `cursor=${replay.cursor} future=${replay.futureTime}`);
   check('游标右侧 Ctrl 落点仍钳在游标内',

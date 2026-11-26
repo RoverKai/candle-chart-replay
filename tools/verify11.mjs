@@ -108,6 +108,43 @@ try {
   check('刷新后默认样式保留', persisted.fibNeg === true && persisted.rectDefault === '#00ff00',
     JSON.stringify({ fibNeg: persisted.fibNeg, rectDefault: persisted.rectDefault }));
 
+  // ---------- 面板打开时撤销要同步, 且后续编辑建立新撤销点 ----------
+  const undoGeo = await page.evaluate(() => {
+    const dl = window.KR.drawLayer;
+    const d = dl.getDrawings().find((x) => x.type === 'rect');
+    const a = dl.xyOf(d.pts[0]), b = dl.xyOf(d.pts[1]);
+    return { id: d.id, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  });
+  await page.mouse.dblclick(box.x + undoGeo.x, box.y + undoGeo.y);
+  await page.waitForTimeout(120);
+  // 双击选中本身会留下撤销点, 以面板打开后的栈深度为基准
+  const panelBase = await page.evaluate(() => window.KR.drawLayer.undoStack.length);
+  await setField('#styleBody input[data-field="opacity"]', '30');
+  await page.waitForTimeout(80);
+  const afterStyleEdit = await page.evaluate((g) => ({
+    opacity: window.KR.drawLayer.getDrawing(g.id).opacity,
+    undo: window.KR.drawLayer.undoStack.length
+  }), undoGeo);
+  check('样式修改建立撤销点', afterStyleEdit.undo === panelBase + 1, JSON.stringify(afterStyleEdit));
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(150);
+  const afterUndo = await page.evaluate((g) => {
+    const dl = window.KR.drawLayer;
+    const slider = document.querySelector('#styleBody input[data-field="opacity"]');
+    return { opacity: dl.getDrawing(g.id).opacity, undo: dl.undoStack.length, slider: slider ? slider.value : null };
+  }, undoGeo);
+  check('撤销后画线样式回滚', afterUndo.opacity === 0.6, String(afterUndo.opacity));
+  check('撤销后样式面板滑块同步', afterUndo.slider === '60', String(afterUndo.slider));
+  await setField('#styleBody input[data-field="opacity"]', '30');
+  await page.waitForTimeout(80);
+  const afterReedit = await page.evaluate((g) => ({
+    undo: window.KR.drawLayer.undoStack.length,
+    opacity: window.KR.drawLayer.getDrawing(g.id).opacity
+  }), undoGeo);
+  check('撤销后继续编辑会建立新撤销点',
+    afterReedit.undo === panelBase + 1 && afterReedit.opacity === 0.3,
+    JSON.stringify(afterReedit));
+
   // ---------- 旧版纯数字 levels 兼容 ----------
   const legacy = await page.evaluate(() => {
     const dl = window.KR.drawLayer;

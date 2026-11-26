@@ -1141,6 +1141,16 @@
     if (el) el.hidden = true;
   }
 
+  /** Ctrl+Z / 撤销按钮把画线回滚后, 面板必须重新读取当前样式;
+      同时重置 dirty, 让下一次修改重新建立撤销点, 避免后续修改合并回滚。 */
+  function syncStylePanelAfterUndo() {
+    if (!styleCtx) return;
+    if (!styleCtx.pane.drawLayer.getDrawing(styleCtx.id)) { closeStylePanel(); return; }
+    styleCtx.dirty = false;
+    styleCtx.pane.drawLayer.select(styleCtx.id);
+    renderStylePanel();
+  }
+
   function openStylePanel(pane, id) {
     if (!pane || !pane.drawLayer) return;
     var d = pane.drawLayer.getDrawing(id);
@@ -1887,6 +1897,7 @@
     $('btnUndo').addEventListener('click', function () {
       var p = activePane();
       if (!p || !p.drawLayer.undo()) hint('没有可撤销的操作');
+      else syncStylePanelAfterUndo();
     });
     $('btnDeleteSel').addEventListener('click', function () {
       var p = activePane();
@@ -1989,7 +2000,11 @@
   function onKey(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     var p = activePane();
-    if (p && p.drawLayer.handleKey(e)) { e.preventDefault(); return; }
+    if (p && p.drawLayer.handleKey(e)) {
+      if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'z') syncStylePanelAfterUndo();
+      e.preventDefault();
+      return;
+    }
 
     switch (e.key) {
       case 'ArrowLeft': step(-1); e.preventDefault(); break;

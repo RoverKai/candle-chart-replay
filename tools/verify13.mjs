@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 
-const browser = await chromium.launch({ channel: 'msedge' });
+const browser = await chromium.launch({ channel: process.env.CHANNEL || 'msedge' });
 const page = await browser.newPage({ viewport: { width: 1680, height: 950 } });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -348,6 +348,62 @@ st = await bookState();
 check('旧版单持仓存档可迁移成持仓数组', st.count === 1 && st.legacyPos === 'legacy-1' && st.nos[0] === 1,
   JSON.stringify({ count: st.count, legacy: st.legacyPos, nos: st.nos }));
 check('旧存档迁移后手数保留', Math.abs(st.lots[0] - 0.5) < 1e-9, String(st.lots[0]));
+
+/* ============================================================ 6b. OCO 开关对已有挂单生效 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(12000));
+await page.waitForTimeout(300);
+const toggleC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+await page.evaluate((c) => {
+  const b = window.KR.book;
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+}, toggleC);
+await page.waitForTimeout(250);
+let flags = await page.evaluate(() => window.KR.book.orders.map((o) => o.oco === true));
+check('OCO 关闭时挂单独立', flags.length === 2 && flags.every((v) => !v), JSON.stringify(flags));
+
+await page.evaluate(() => window.KR.book.setOco(true));
+await page.waitForTimeout(250);
+flags = await page.evaluate(() => window.KR.book.orders.map((o) => o.oco === true));
+check('勾选 OCO 同步已有挂单', flags.length === 2 && flags.every((v) => v), JSON.stringify(flags));
+check('勾选 OCO 后面板复选框同步', await page.isChecked('#ocoInput'));
+await jumpToLow(toggleC - 6);
+await page.waitForTimeout(300);
+st = await bookState();
+check('运行中开启 OCO 后一张成交撤销其余', st.count === 1 && st.orders === 0,
+  JSON.stringify({ count: st.count, orders: st.orders }));
+await page.evaluate(() => window.KR.book.setOco(false));
+
+/* ============================================================ 6c. 旧版挂单存档迁移 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(13000));
+await page.waitForTimeout(300);
+const legacyC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+const legacyOrders = await page.evaluate((c) => {
+  const b = window.KR.book;
+  const bar = window.KR.state.bars[window.KR.state.cursor];
+  b.restore({
+    positions: [],
+    trades: [],
+    orders: [
+      { id: 'legacy-o1', type: 'buy_limit', price: c - 2, lots: 0.1, contract: 100, sl: null, tp: null, createdTime: bar.time },
+      { id: 'legacy-o2', type: 'buy_limit', price: c - 6, lots: 0.1, contract: 100, sl: null, tp: null, createdTime: bar.time }
+    ]
+  });
+  b.onUpdate();
+  return { oco: b.oco, count: b.orders.length, flags: b.orders.map((o) => o.oco === true) };
+}, legacyC);
+await page.waitForTimeout(300);
+check('旧版挂单迁移后保留 OCO 语义',
+  legacyOrders.oco === true && legacyOrders.count === 2 && legacyOrders.flags.every((v) => v),
+  JSON.stringify(legacyOrders));
+check('旧版挂单迁移后 OCO 开关同步勾选', await page.isChecked('#ocoInput'));
+await jumpToLow(legacyC - 6);
+await page.waitForTimeout(300);
+st = await bookState();
+check('旧版挂单一张成交撤销其余', st.count === 1 && st.orders === 0,
+  JSON.stringify({ count: st.count, orders: st.orders }));
 
 /* ============================================================ 7. 多窗格持仓互不影响 */
 await page.click('#layoutSwitch button[data-layout="2"]');

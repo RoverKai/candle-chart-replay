@@ -88,9 +88,11 @@
     try { localStorage.setItem('kline-replay:contract:' + this.symbol, String(this.contract)); } catch (e) { }
   };
 
-  /** 挂单 OCO 开关: 打开后任意一张挂单成交会撤销其余挂单 */
+  /** 挂单 OCO 开关: 打开后任意一张挂单成交会撤销其余挂单; 切换立即作用于已有挂单 */
   TradeBook.prototype.setOco = function (on) {
     this.oco = !!on;
+    // 开关是全局的, 已挂出的单也要跟随, 否则勾选后旧挂单仍然各自成交
+    for (var i = 0; i < this.orders.length; i++) this.orders[i].oco = this.oco;
     try { localStorage.setItem(OCO_KEY, this.oco ? '1' : '0'); } catch (e) { }
     this.onUpdate();
   };
@@ -874,6 +876,20 @@
     }
     this.trades = (d.trades || []).slice().sort(function (a, b) { return a.exitTime - b.exitTime; });
     this.orders = (d.orders || []).slice();
+    // 旧版挂单没有 oco 字段, 当时是隐式 OCO (一张成交撤销其余); 迁移时保留该语义,
+    // 否则升级后旧存档里的多张挂单会各自成交, 敞口突然放大。
+    var legacyOco = false;
+    for (i = 0; i < this.orders.length; i++) {
+      var order = this.orders[i];
+      if (order && typeof order === 'object' && !Object.prototype.hasOwnProperty.call(order, 'oco')) {
+        order.oco = true;
+        legacyOco = true;
+      }
+    }
+    if (legacyOco) {
+      this.oco = true;
+      try { localStorage.setItem(OCO_KEY, '1'); } catch (e) { }
+    }
     this.activePosId = d.activePosId != null && this._posIndex(d.activePosId) >= 0
       ? d.activePosId
       : (this.positions.length ? this.positions[this.positions.length - 1].id : null);

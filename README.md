@@ -332,7 +332,7 @@ npm run verify:trade # 23 项交易断言（开仓、浮动盈亏、平仓、止
 npm run verify:order # 17 项断言（视图变化自动重绘、右键菜单、挂单成交、OCO、取消、持久化）
 npm run verify:sl    # 15 项断言（SL/TP 按钮拖拽、跟踪止损、按现价夹紧、持久化）
 npm run verify:copy  # 13 项断言（Ctrl 复制、播放位置记忆、按周期隔离）
-npm run verify:layout # 43 项断言（1/2/3/4 窗格、上下/左右分屏、拖动分隔线、独立周期、跨窗格时间轴同步、顶栏周期条与窄屏可用性）
+npm run verify:layout # 44 项断言（1/2/3/4 窗格、上下/左右分屏、拖动分隔线、独立周期、跨窗格时间轴同步、顶栏周期条与窄屏可用性）
 npm run verify:future # 15 项断言（回放到锚点之前画线不消失、未来空白区可落点、纯未来画线可见、像素级确认已绘制）
 npm run verify:snap  # 33 项断言（Shift/Ctrl/⌘ 定位、端点吸附、单点复制、回放边界、窗格销毁释放）
 npm run verify:style # 24 项断言（样式入口、矩形配色/旧矩形同步、低透明度显示、fib 自定义与非法值、旧数据兼容、撤销同步/空栈、measure 无入口、存储失败提示、持久化）

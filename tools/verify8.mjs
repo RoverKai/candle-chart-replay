@@ -294,6 +294,30 @@ await page.waitForTimeout(600);
 check('窄屏滚动周期条后仍能切周期',
   await page.evaluate(() => !!document.querySelector('#periodBar button.active[data-period="60"]')));
 
+// 切到靠右的 H4，强制把周期条滚回开头，再切换活动窗格：
+// syncPeriodBar 应把当前高亮按钮重新滚进可视区。
+await page.setViewportSize({ width: 900, height: 800 });
+await page.waitForTimeout(300);
+await page.click('#periodBar button[data-period="240"]');
+await page.waitForFunction(() => window.KR.state.panes[0].period === 240, { timeout: 15000 });
+await page.waitForTimeout(600);
+await page.evaluate(() => { document.getElementById('periodBar').scrollLeft = 0; });
+const paneCenters = await page.evaluate(() => window.KR.state.panes.map(function (p) {
+  const r = p.els.wrap.getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+}));
+await page.mouse.click(paneCenters[1].x, paneCenters[1].y);
+await page.waitForTimeout(200);
+await page.mouse.click(paneCenters[0].x, paneCenters[0].y);
+await page.waitForTimeout(300);
+check('窄屏切换活动窗格后高亮周期自动可见', await page.evaluate(() => {
+  const host = document.getElementById('periodBar');
+  const btn = host.querySelector('button.active');
+  const hr = host.getBoundingClientRect();
+  const br = btn.getBoundingClientRect();
+  return hr.left <= br.left + 1 && br.right <= hr.right + 1;
+}));
+
 await page.click('#btnDrawMenu');
 await page.waitForTimeout(200);
 const menu = await page.evaluate(() => {

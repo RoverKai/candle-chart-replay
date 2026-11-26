@@ -389,10 +389,20 @@
     if (!host) return;
     var period = pane ? pane.period : null;
     var arr = host.querySelectorAll('button');
+    var activeBtn = null;
     for (var i = 0; i < arr.length; i++) {
       var on = parseInt(arr[i].dataset.period, 10) === period;
       arr[i].classList.toggle('active', on);
       arr[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) activeBtn = arr[i];
+    }
+    // 窄屏下周期条会横向滚动: 切换活动窗格或恢复靠后的周期时,
+    // 把当前高亮按钮滚回可视区, 否则顶栏看不出当前周期。
+    if (activeBtn && host.scrollWidth > host.clientWidth) {
+      var hr = host.getBoundingClientRect();
+      var br = activeBtn.getBoundingClientRect();
+      if (br.left < hr.left) host.scrollLeft -= (hr.left - br.left) + 2;
+      else if (br.right > hr.right) host.scrollLeft += (br.right - hr.right) + 2;
     }
     var multi = state.panes.length > 1 && !!pane;
     host.title = multi

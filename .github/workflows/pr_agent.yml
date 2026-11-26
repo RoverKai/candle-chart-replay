@@ -40,7 +40,14 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           config.model: "deepseek/deepseek-flash"
           config.fallback_models: '[]'
-          # 该模型实际 1M 上下文；这里按成本只给 128K 输入预算，超出的大 PR 会自动分块
+          # 思考强度：none/minimal/low/medium/high/xhigh/max
+          # DeepSeek 侧映射：medium→high、xhigh→high、max→max，
+          # 所以默认 medium 实际已经是 high，只有 max 才是真的顶格。
+          config.reasoning_effort: "max"
+          # 上下文预算。max_model_tokens 是硬上限（默认 32000），会二次夹住
+          # custom_model_max_tokens——只设后者不设前者，预算仍然是 32000。
+          # 想放宽就两个一起改；调太大反而会拉低评审质量（输入过长模型会退化）。
+          config.max_model_tokens: "131072"
           config.custom_model_max_tokens: "131072"
           # 推理型模型默认 120s 太紧，大 diff 会超时
           config.ai_timeout: "300"

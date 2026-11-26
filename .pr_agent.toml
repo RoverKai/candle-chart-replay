@@ -10,6 +10,10 @@ repo_context_max_lines = 200
 
 [ignore]
 # 锁文件、构建产物、第三方源码、二进制与一次性脚本：diff 大且没有评审价值
+#
+# 注意不要整目录忽略 tools/：verify*.mjs 是「PR 声称验证过」的一部分，
+# 藏起来会让评审看不到这部分 diff（既低估评审工作量，又会误报「文件缺失」，
+# 见 PR #2 里 tools/verify10.mjs 的假阳性）。只忽略一次性的截图/探测脚本。
 glob = [
   "package-lock.json",
   "node_modules/**",
@@ -19,11 +23,19 @@ glob = [
   "*.hst",
   "shots/**",
   "data/**",
-  "tools/**",
+  "tools/hero*.mjs",
+  "tools/probe-*.mjs",
 ]
 
 [pr_reviewer]
 num_max_findings = 8
+# 结构化评审字段：每个都往输出 schema 里加一项，评审更具体、也更能看出风险
+require_risk_assessment = true       # ⚠️ Risk level：low / medium / high
+require_merge_recommendation = true  # ✅ Merge recommendation：能不能合
+require_priority_files = true        # 📂 人类先看哪几个文件
+require_failure_modes = true         # 🔎 合并后可能怎么挂、靠什么发现
+# 想让每条 finding 直接贴到对应代码行而不是塞进表格时打开（会多发行内评论）
+# inline_key_issues = true
 # 仓库没有单元测试框架，测试要求写在 extra_instructions 里，避免泛泛要「补测试」
 require_tests_review = false
 # 没接 issue 系统，关掉以避免编造工单分析

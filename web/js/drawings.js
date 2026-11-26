@@ -100,6 +100,7 @@
     this.onChange = opts.onChange || function () {};
     this.onHint = opts.onHint || function () {};
     this.onEdit = opts.onEdit || null;
+    this.onToolChange = opts.onToolChange || function () {};
     this.defaults = null;       // setDefaults() 注入的每种工具的新画线默认样式
 
     this.ctx = this.canvas.getContext('2d');
@@ -311,13 +312,20 @@
     return this.drawings.filter(function (d) { return d.type !== 'measure'; });
   };
 
-  DrawingLayer.prototype.setTool = function (tool) {
+  /**
+   * 切换当前工具。
+   * silent=true 用于外部(工具栏)主动设置, 避免回调又反向覆盖外部状态;
+   * 画完一条线、Esc 等由画线层自己发起的回退会触发 onToolChange, 让工具栏跟着同步。
+   */
+  DrawingLayer.prototype.setTool = function (tool, silent) {
+    var changed = this.tool !== tool;
     this.tool = tool;
     this.pending = null;
     this.ephemeral = null;
     if (tool !== 'cursor') this.selected = null;
     this.host.style.cursor = tool === 'cursor' ? '' : 'crosshair';
     this.redraw();
+    if (changed && !silent) this.onToolChange(tool);
   };
 
   DrawingLayer.prototype._snapshot = function () {

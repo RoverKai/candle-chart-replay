@@ -244,7 +244,14 @@
         }
       },
       onHint: hint,
-      onEdit: function (id) { openStylePanel(pane, id); }
+      onEdit: function (id) { openStylePanel(pane, id); },
+      // 画完一条线 / 按 Esc 时画线层会自动回到光标模式, 工具栏高亮和提示要跟着退回
+      onToolChange: function (tool) {
+        if (pane.index !== state.activeIndex) return;
+        currentTool = tool;
+        syncToolButtons();
+        if (tool === 'cursor') hint('拖动画线或点击空白处取消选择');
+      }
     });
     pane.drawLayer.setDefaults(drawDefaults);
 
@@ -1554,7 +1561,8 @@
     currentTool = id;
     syncToolButtons();
     var p = activePane();
-    if (p) p.drawLayer.setTool(id === 'eraser' ? 'cursor' : id);
+    // silent: 工具由工具栏主动指定, 不要让画线层的回调反过来覆盖(比如橡皮擦映射到 cursor)
+    if (p) p.drawLayer.setTool(id === 'eraser' ? 'cursor' : id, true);
     var tips = {
       trend: '点击起点 → 点击终点', ray: '点击起点 → 点击方向',
       hline: '点击放置水平线', vline: '点击放置垂直线',

@@ -250,6 +250,47 @@ await page.waitForTimeout(500);
 check('单窗格隐藏方向切换和分隔线',
   !(await page.isVisible('#splitSwitch')) && !(await page.isVisible('#paneResizer')));
 
+// ---- 8. 顶栏统一周期条 + 窄屏可用性
+check('周期条位于顶栏', await page.evaluate(() => !!document.querySelector('.topbar #periodBar')));
+check('窗格内不再有独立周期 header', (await page.locator('.pane-head').count()) === 0);
+
+await page.setViewportSize({ width: 900, height: 800 });
+await page.click('#layoutSwitch button[data-layout="2"]');
+await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(500);
+const narrow = await page.evaluate(() => {
+  const bar = document.querySelector('.topbar');
+  const period = document.getElementById('periodBar');
+  const ids = ['btnChartSettings', 'btnIndicators', 'btnDrawMenu', 'btnTradePanel'];
+  return {
+    topbarFits: bar.scrollWidth <= bar.clientWidth + 1,
+    actionsInView: ids.every(function (id) {
+      const r = document.getElementById(id).getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth;
+    }),
+    periodScrolls: period.scrollWidth > period.clientWidth
+  };
+});
+check('900px 双窗格顶栏不横向溢出', narrow.topbarFits);
+check('900px 下右侧操作按钮仍在视口内', narrow.actionsInView);
+check('900px 下周期条自身可横向滚动', narrow.periodScrolls);
+
+await page.click('#periodBar button[data-period="60"]');
+await page.waitForFunction(() => window.KR.state.panes.some(function (p) { return p.period === 60; }), { timeout: 15000 });
+await page.waitForTimeout(600);
+check('窄屏滚动周期条后仍能切周期',
+  await page.evaluate(() => !!document.querySelector('#periodBar button.active[data-period="60"]')));
+
+await page.click('#btnDrawMenu');
+await page.waitForTimeout(200);
+const menu = await page.evaluate(() => {
+  const p = document.getElementById('drawPanel');
+  const r = p.getBoundingClientRect();
+  return { visible: !p.hidden, inView: r.top >= 0 && r.bottom <= innerHeight };
+});
+check('窄屏下画线菜单完整可见', menu.visible && menu.inView);
+await page.click('#btnDrawMenu');
+
 console.log('通过:');
 ok.forEach((s2) => console.log('  ✓ ' + s2));
 if (bad.length) { console.log('失败:'); bad.forEach((s2) => console.log('  ✗ ' + s2)); }

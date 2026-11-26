@@ -227,7 +227,14 @@ try {
     `${st.wickUp} / ${st.wickDown}`);
 
   await setField('volumeOpacity', 0.2);
-  await page.waitForTimeout(350);
+  await page.waitForFunction(() => {
+    const p = window.KR.state.panes[0];
+    const data = window.KR.volume.data();
+    const bar = p.bars[p.cursor];
+    if (!bar || !data.length) return false;
+    const expected = bar.close >= bar.open ? 'rgba(0, 255, 0, 0.2)' : 'rgba(0, 0, 255, 0.2)';
+    return data[data.length - 1].color === expected;
+  }, { timeout: 5000 });
   const vol = await page.evaluate(() => {
     const p = window.KR.state.panes[0];
     const data = window.KR.volume.data();

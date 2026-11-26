@@ -572,7 +572,7 @@
     ui.body.innerHTML = '';
     if (activeTab === 'candles' && hasHeavyData(hostOpts.getPanes ? hostOpts.getPanes() : [])) {
       ui.body.appendChild(el('div', 'cs-hint cs-heavy-hint',
-        '历史数据较大：成交量柱的颜色 / 不透明度会在点击「应用」后统一刷新，上方预览仍会实时变化。'));
+        '历史数据较大：成交量柱会在停止拖动后刷新一次，可能有短暂停顿；应用时再统一校准。'));
     }
     tab.sections.forEach(function (section) {
       var sec = el('div', 'cs-section');
@@ -707,14 +707,14 @@
     if (recolorTimer) clearTimeout(recolorTimer);
     var sig = volumeSignature(draft);
     if (sig === lastVolumeSig) return;
+    var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
+    // 大历史不在拖动过程中重算, 但停止拖动后仍刷新一次, 不必等点应用
+    var delay = hasHeavyData(panes) ? 450 : 140;
     recolorTimer = setTimeout(function () {
       recolorTimer = null;
-      var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
-      // 数据量特别大时不跟着拖动实时重算整列成交量, 留到点应用时一次性处理
-      if (hasHeavyData(panes)) return;
       panes.forEach(function (p) { recolorVolume(p, draft); });
       lastVolumeSig = sig;
-    }, 140);
+    }, delay);
   }
 
   function flushVolumeRecolor(style, force) {

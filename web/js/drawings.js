@@ -53,6 +53,7 @@
     this.hoverTarget = null;
     this.drag = null;           // {id, mode:'point'|'body', index, start, orig}
     this.ephemeral = null;      // 测量工具临时结果
+    this.mods = { shift: false, ctrl: false };  // Shift 横向锁价 / Ctrl 吸附 OHLC
     this.undoStack = [];
     this.w = 0;
     this.h = 0;
@@ -155,6 +156,60 @@
     return { time: bars[idx].time, price: price };
   };
 
+  /** 按时间取完整数据里的那根 K 线 (pointOf 已把时间对齐到 bar) */
+  DrawingLayer.prototype._barForTime = function (time) {
+    var bars = this.getBars ? this.getBars() : null;
+    if (!bars || !bars.length) return null;
+    var lo = 0, hi = bars.length - 1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (bars[mid].time === time) return bars[mid];
+      if (bars[mid].time < time) lo = mid + 1; else hi = mid - 1;
+    }
+    return null;
+  };
+
+  /** 鼠标纵坐标离这根 K 线的 open/high/low/close 哪个最近 */
+  DrawingLayer.prototype._nearestOHLC = function (bar, y) {
+    var levels = [
+      { kind: 'O', price: bar.open },
+      { kind: 'H', price: bar.high },
+      { kind: 'L', price: bar.low },
+      { kind: 'C', price: bar.close }
+    ];
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < levels.length; i++) {
+      var py = this.yOf(levels[i].price);
+      if (py === null) continue;
+      var d = Math.abs(y - py);
+      if (d < bestD) { bestD = d; best = levels[i]; }
+    }
+    if (!best) return null;
+    return { kind: best.kind, price: best.price };
+  };
+
+  /** 把像素落点解析成锚点:
+      - allowCtrl 且按住 Ctrl: 吸附到鼠标所在 K 线最近的 O/H/L/C
+      - 按住 Shift: 价格锁在 lockPrice 上, 只让时间跟着鼠标走 (横向移动)
+      两个键同时按住时 Shift 优先。返回 {pt, snap?, lock?}; 没有有效数据时返回 null。 */
+  DrawingLayer.prototype._resolvePoint = function (x, y, lockPrice, allowCtrl) {
+    var pt = this.pointOf(x, y);
+    if (!pt) return null;
+    var mods = this.mods || {};
+    // 两个键同时按住时以横向锁定为准, 避免吸附把价格悄悄拉走
+    if (mods.shift && lockPrice !== null && lockPrice !== undefined) {
+      return { pt: { time: pt.time, price: lockPrice }, lock: true };
+    }
+    if (allowCtrl && mods.ctrl) {
+      var bar = this._barForTime(pt.time);
+      if (bar) {
+        var snap = this._nearestOHLC(bar, y);
+        if (snap) return { pt: { time: pt.time, price: snap.price }, snap: snap };
+      }
+    }
+    return { pt: pt };
+  };
+
   DrawingLayer.prototype.paneHeight = function () {
     try {
       var panes = this.chart.panes();
@@ -246,6 +301,8 @@
       var r = host.getBoundingClientRect();
       var x = e.clientX - r.left;
       var y = e.clientY - r.top;
+      self.mods.shift = !!e.shiftKey;
+      self.mods.ctrl = !!(e.ctrlKey || e.metaKey);
 
       if (self.tool === 'cursor') {
         // 交易层的控件 (如止损按钮/止损线) 优先
@@ -283,18 +340,20 @@
       e.stopPropagation();
 
       if (self.tool === 'measure') {
-        self._measureStart = self.pointOf(x, y);
+        var measureStart = self._resolvePoint(x, y, null, true);
+        self._measureStart = measureStart ? measureStart.pt : null;
         self.ephemeral = null;
         self.drag = { measure: true, start: { x: x, y: y } };
         return;
       }
 
-      var pt = self.pointOf(x, y);
-      if (!pt) return;
+      var res = self._resolvePoint(x, y, self.pending ? self.pending.price : null, true);
+      if (!res) return;
+      var pt = res.pt;
 
       if (SINGLE_POINT[self.tool]) {
         if (self.tool === 'text') {
-          self._inlineEdit(x, y);
+          self._inlineEdit(x, y, pt);
           self.pending = null;
           self.setTool('cursor');
           return;
@@ -319,6 +378,8 @@
       var r = host.getBoundingClientRect();
       var x = e.clientX - r.left;
       var y = e.clientY - r.top;
+      self.mods.shift = !!e.shiftKey;
+      self.mods.ctrl = !!(e.ctrlKey || e.metaKey);
 
       if (!self.drag && !self.pending && !self._interceptorDrag) {
         if (x < 0 || y < 0 || x > self.w || y > self.h) {
@@ -334,51 +395,8 @@
         return;
       }
 
-      if (self.drag && self.drag.measure) {
-        var cur = self.pointOf(x, y);
-        if (self._measureStart && cur) {
-          self.ephemeral = { type: 'measure', pts: [self._measureStart, cur], color: '#4caf50', width: 1.4 };
-        }
-        self.requestRedraw();
-        return;
-      }
-
       if (self.drag) {
-        // 第一次真正移动时才生成副本, 这样 Ctrl + 单击不会凭空多出一条线
-        if (self.drag.clone) {
-          var src = self._find(self.drag.id);
-          if (!src) { self.drag = null; return; }
-          var copy = JSON.parse(JSON.stringify(src));
-          copy.id = uid();
-          self.drawings.push(copy);
-          self.selected = copy.id;
-          self.drag.id = copy.id;
-          self.drag.clone = false;
-          self.onHint('已复制一份，可继续拖动');
-        }
-        if (self.drag.mode === 'body') {
-          var anchor0 = self.xyOf(self.drag.orig[0]);
-          var anchor1 = self.xyOf(self.drag.orig[self.drag.orig.length - 1]);
-          var now0 = self.pointOf(x, y);
-          if (now0 && anchor0 && anchor1) {
-            var cur0 = self.pointOf(self.drag.start.x, self.drag.start.y);
-            if (cur0) {
-              var dt = now0.time - cur0.time;
-              var dp = now0.price - cur0.price;
-              var d = self._find(self.drag.id);
-              d.pts = self.drag.orig.map(function (p) {
-                return { time: p.time + dt, price: p.price + dp };
-              });
-            }
-          }
-        } else {
-          var np = self.pointOf(x, y);
-          if (np) {
-            var dd = self._find(self.drag.id);
-            dd.pts[self.drag.index] = np;
-          }
-        }
-        self.requestRedraw();
+        self._updateDrag(x, y);
         return;
       }
 
@@ -398,7 +416,7 @@
         ? 'crosshair'
         : (hovering ? (cloneKey ? 'copy' : (hovering.mode === 'point' ? 'nwse-resize' : 'move')) : '');
 
-      if (self.pending || changed) self.requestRedraw();
+      if (self.pending || changed || (self.tool !== 'cursor' && self.mods.ctrl)) self.requestRedraw();
     };
 
     this._onUp = function () {
@@ -432,6 +450,78 @@
     window.addEventListener('mousemove', this._onMove, true);
     window.addEventListener('mouseup', this._onUp, true);
     host.addEventListener('mouseleave', this._onLeave, true);
+
+    // 修饰键按下/松开本身不会产生 mousemove, 但预览和拖动结果要立刻跟着变
+    this._onMods = function (e) {
+      var shift = !!e.shiftKey;
+      var ctrl = !!(e.ctrlKey || e.metaKey);
+      if (shift === self.mods.shift && ctrl === self.mods.ctrl) return;
+      self.mods.shift = shift;
+      self.mods.ctrl = ctrl;
+      if (self.drag) {
+        // 还没真正移动时不在这里生成复制副本, 避免 Ctrl+按下后碰一下修饰键就多一条
+        if (self.hover && !self.drag.clone) self._updateDrag(self.hover.x, self.hover.y);
+        else self.requestRedraw();
+      } else if (self.pending || self.tool !== 'cursor') {
+        self.requestRedraw();
+      }
+    };
+    window.addEventListener('keydown', this._onMods, true);
+    window.addEventListener('keyup', this._onMods, true);
+  };
+
+  /** 拖动中的落点计算 (鼠标移动、或按住/松开修饰键时调用) */
+  DrawingLayer.prototype._updateDrag = function (x, y) {
+    if (!this.drag) return;
+
+    if (this.drag.measure) {
+      var end = this._resolvePoint(x, y, this._measureStart ? this._measureStart.price : null, true);
+      if (this._measureStart && end) {
+        this.ephemeral = { type: 'measure', pts: [this._measureStart, end.pt], color: '#4caf50', width: 1.4 };
+      }
+      this.requestRedraw();
+      return;
+    }
+
+    // 第一次真正移动时才生成副本, 这样 Ctrl + 单击不会凭空多出一条线
+    if (this.drag.clone) {
+      var src = this._find(this.drag.id);
+      if (!src) { this.drag = null; return; }
+      var copy = JSON.parse(JSON.stringify(src));
+      copy.id = uid();
+      this.drawings.push(copy);
+      this.selected = copy.id;
+      this.drag.id = copy.id;
+      this.drag.clone = false;
+      this.onHint('已复制一份，可继续拖动');
+    }
+
+    if (this.drag.mode === 'body') {
+      var anchor0 = this.xyOf(this.drag.orig[0]);
+      var anchor1 = this.xyOf(this.drag.orig[this.drag.orig.length - 1]);
+      var now0 = this.pointOf(x, y);
+      if (now0 && anchor0 && anchor1) {
+        var cur0 = this.pointOf(this.drag.start.x, this.drag.start.y);
+        if (cur0) {
+          var dt = now0.time - cur0.time;
+          // Shift: 整条只水平平移, 价格不动
+          var dp = this.mods.shift ? 0 : now0.price - cur0.price;
+          var d = this._find(this.drag.id);
+          d.pts = this.drag.orig.map(function (p) {
+            return { time: p.time + dt, price: p.price + dp };
+          });
+        }
+      }
+    } else {
+      // 光标模式下 Ctrl 仍是复制, 所以拖端点只让 Shift 锁价
+      var orig = this.drag.orig[this.drag.index];
+      var np = this._resolvePoint(x, y, orig ? orig.price : null, false);
+      if (np) {
+        var dd = this._find(this.drag.id);
+        dd.pts[this.drag.index] = np.pt;
+      }
+    }
+    this.requestRedraw();
   };
 
   DrawingLayer.prototype._find = function (id) {
@@ -494,9 +584,9 @@
   };
 
   /* 画布内即时输入文字 (避免 window.prompt 阻塞) */
-  DrawingLayer.prototype._inlineEdit = function (x, y) {
+  DrawingLayer.prototype._inlineEdit = function (x, y, anchor) {
     var self = this;
-    var pt = this.pointOf(x, y);
+    var pt = anchor || this.pointOf(x, y);
     if (!pt) return;
     var input = document.createElement('input');
     input.className = 'draw-text-input';
@@ -548,6 +638,11 @@
 
     if (this.pending && this.hover) {
       this._paintPreview();
+    } else if (this.hover && this.tool !== 'cursor' && this.mods.ctrl) {
+      // 还没落第一点时也提示 Ctrl 会吸到哪
+      var hov = this._resolvePoint(this.hover.x, this.hover.y, null, true);
+      var hb = hov ? this.xyOf(hov.pt) : null;
+      if (hov && hov.snap && hb) this._paintSnap(hov, hb);
     }
     ctx.restore();
   };
@@ -628,7 +723,10 @@
     var ctx = this.ctx;
     var a = this.xyOf(this.pending);
     if (!a) return;
-    var b = this.hover;
+    var res = this._resolvePoint(this.hover.x, this.hover.y, this.pending.price, true);
+    if (!res) return;
+    var b = this.xyOf(res.pt);
+    if (!b) return;
     ctx.save();
     ctx.setLineDash([5, 4]);
     ctx.strokeStyle = 'rgba(41,98,255,.9)';
@@ -647,6 +745,29 @@
     }
     ctx.stroke();
     ctx.restore();
+    if (res.snap) this._paintSnap(res, b);
+  };
+
+  /** Ctrl 吸附时在目标价位上画个标记, 松手前就能看到会落在哪 */
+  DrawingLayer.prototype._paintSnap = function (res, b) {
+    var ctx = this.ctx;
+    var color = '#ffc107';
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(b.x - 16, b.y);
+    ctx.lineTo(b.x + 16, b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,193,7,.22)';
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    this._tag(res.snap.kind + '  ' + res.snap.price.toFixed(this.digits || 2), b.x + 12, b.y - 16, color, 'left');
   };
 
   DrawingLayer.prototype._paintFib = function (d, a, b) {

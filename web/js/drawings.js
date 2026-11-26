@@ -343,14 +343,16 @@
         self.selected = hit.id;
         self._snapshot();
         var d = self._find(hit.id);
+        var twoPoint = d && d.pts.length >= 2;
         self.drag = {
           id: hit.id,
           mode: hit.mode,
           index: hit.index,
           start: { x: x, y: y },
           orig: JSON.parse(JSON.stringify(d.pts)),
-          // Ctrl/⌘ + 拖线体 → 复制; 拖端点 → 吸附 OHLC
-          clone: !!(e.ctrlKey || e.metaKey) && hit.mode === 'body',
+          // 两点工具端点 → Ctrl 吸附; 线体 / 单点工具(文字、水平线、垂直线) → Ctrl 仍是复制
+          clone: !!(e.ctrlKey || e.metaKey) && (hit.mode === 'body' || !twoPoint),
+          canSnap: hit.mode === 'point' && twoPoint,
           moved: false
         };
         self.redraw();
@@ -434,10 +436,13 @@
         changed = true;
       }
       var cloneKey = e.ctrlKey || e.metaKey;
+      var hoverDraw = hovering ? self._find(hovering.id) : null;
+      var copyHover = cloneKey && hovering &&
+        (hovering.mode === 'body' || (hoverDraw && hoverDraw.pts.length < 2));
       host.style.cursor = self.tool !== 'cursor'
         ? 'crosshair'
         : (hovering
-          ? ((cloneKey && hovering.mode === 'body') ? 'copy' : (hovering.mode === 'point' ? 'nwse-resize' : 'move'))
+          ? (copyHover ? 'copy' : (hovering.mode === 'point' ? 'nwse-resize' : 'move'))
           : '');
 
       if (self.pending || changed || (self.tool !== 'cursor' && self.mods.ctrl)) self.requestRedraw();
@@ -560,7 +565,7 @@
       // 拖端点: Ctrl 吸附 OHLC, Shift 锁价 (两者同时按住时 Shift 优先)
       // 第四个参数只表示「允许 Ctrl 吸附」, 未按 Ctrl 时仍按鼠标位置自由落位
       var orig = this.drag.orig[this.drag.index];
-      var np = this._resolvePoint(x, y, orig ? orig.price : null, true);
+      var np = this._resolvePoint(x, y, orig ? orig.price : null, this.drag.canSnap);
       if (np) {
         var dd = this._find(this.drag.id);
         dd.pts[this.drag.index] = np.pt;
@@ -689,7 +694,7 @@
       var hb = hov ? this.xyOf(hov.pt) : null;
       if (hov && hov.snap && hb) this._paintSnap(hov, hb);
     }
-    if (this.drag && this.drag.mode === 'point' && this.hover && this.mods.ctrl) {
+    if (this.drag && this.drag.canSnap && this.hover && this.mods.ctrl) {
       // 拖端点时同样标出会吸附到哪个价位
       var dOrig = this.drag.orig[this.drag.index];
       var dRes = this._resolvePoint(this.hover.x, this.hover.y, dOrig ? dOrig.price : null, true);

@@ -359,6 +359,29 @@ try {
   check('Meta 拖线体仍复制', metaBodyCount === midG.count + 1,
     `count=${metaBodyCount} 期望 ${midG.count + 1}`);
 
+  // ================= 5e. 单点文字 Ctrl 拖动仍复制 =================
+  await reset();
+  await page.click('button[data-tool="text"]');
+  await page.mouse.click(...P(0.40, 0.42));
+  await page.waitForSelector('.draw-text-input');
+  await page.fill('.draw-text-input', 'T');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(250);
+  const textAnchor = await page.evaluate(() => {
+    const dl = window.KR.drawLayer, d = dl.drawings[0];
+    return d ? { p: dl.xyOf(d.pts[0]), count: dl.drawings.length, type: d.type } : null;
+  });
+  if (!textAnchor) throw new Error('text drawing not created');
+  await page.keyboard.down('Control');
+  await page.mouse.move(...at(textAnchor.p.x, textAnchor.p.y));
+  await page.mouse.down();
+  await page.mouse.move(...at(textAnchor.p.x + 45, textAnchor.p.y + 25), { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(250);
+  const textAfter = await page.evaluate(() => window.KR.drawLayer.drawings.length);
+  check('单点文字 Ctrl 拖动仍复制', textAfter === 2, `count=${textAfter} 期望 2`);
+
   // ================= 6. 回放游标之后不参与吸附 =================
   await page.evaluate(() => {
     const idx = Math.max(1, Math.floor(window.KR.state.bars.length * 0.6));

@@ -328,6 +328,29 @@ const menu = await page.evaluate(() => {
 check('窄屏下画线菜单完整可见', menu.visible && menu.inView);
 await page.click('#btnDrawMenu');
 
+// ---- 9. 切换品种后周期按钮的可用状态跟着刷新
+await page.selectOption('#symbolSelect', 'BTCUSD');
+await page.waitForFunction(() => window.KR.state.symbol === 'BTCUSD' &&
+  window.KR.state.panes[0].period === 60 && window.KR.state.panes[0].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(500);
+const btcPeriods = await page.evaluate(() => ({
+  enabled: document.querySelectorAll('#periodBar button:not([disabled])').length,
+  disabled: document.querySelectorAll('#periodBar button[disabled]').length,
+  active: (document.querySelector('#periodBar button.active') || {}).textContent
+}));
+check('切到只有 H1 的 BTCUSD 后周期按钮置灰刷新',
+  btcPeriods.enabled === 1 && btcPeriods.disabled === 8 && btcPeriods.active === 'H1');
+
+await page.selectOption('#symbolSelect', 'XAUUSD');
+await page.waitForFunction(() => window.KR.state.symbol === 'XAUUSD' &&
+  window.KR.state.panes[0].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(500);
+const xauPeriods = await page.evaluate(() => ({
+  disabled: document.querySelectorAll('#periodBar button[disabled]').length,
+  active: (document.querySelector('#periodBar button.active') || {}).textContent
+}));
+check('切回 XAUUSD 后可用周期恢复', xauPeriods.disabled === 2 && xauPeriods.active === 'H1');
+
 console.log('通过:');
 ok.forEach((s2) => console.log('  ✓ ' + s2));
 if (bad.length) { console.log('失败:'); bad.forEach((s2) => console.log('  ✗ ' + s2)); }

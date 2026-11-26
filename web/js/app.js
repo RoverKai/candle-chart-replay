@@ -1285,6 +1285,15 @@
     if (field === 'color' || field === 'fillColor') {
       var c = {};
       c[field] = t.value;
+      // 旧矩形没有独立填充色时, 修改边框色会同时改变画布填充; 色块和后续保存必须跟上
+      if (field === 'color') {
+        var cur = styleCtx.pane.drawLayer.getDrawing(styleCtx.id);
+        if (cur && cur.type === 'rect' && !cur.fillColor) {
+          c.fillColor = t.value;
+          var fillInput = document.querySelector('#styleBody input[data-field="fillColor"]');
+          if (fillInput) fillInput.value = t.value;
+        }
+      }
       commitStylePatch(c);
       return;
     }
@@ -1297,13 +1306,26 @@
         levels[i].color = t.value;
       } else if (field === 'levelRatio') {
         var r = parseFloat(t.value);
-        if (!isFinite(r)) return;
+        if (!isFinite(r)) {
+          // 非法比例不提交; 失焦时回填当前生效值, 避免下次重绘时突然跳变
+          if (e.type === 'change') t.value = fmtLevel(levels[i].ratio);
+          return;
+        }
         levels[i].ratio = r;
       } else {
         levels[i].visible = !!t.checked;
       }
       commitStylePatch({ levels: levels });
     }
+  }
+
+  function onStyleBlur(e) {
+    var t = e.target;
+    if (!t || !t.dataset || t.dataset.field !== 'levelRatio') return;
+    if (isFinite(parseFloat(t.value))) return;
+    var levels = currentStyleLevels();
+    var i = parseInt(t.dataset.index, 10);
+    if (levels[i]) t.value = fmtLevel(levels[i].ratio);
   }
 
   function addFibLevel() {
@@ -1917,6 +1939,7 @@
     $('btnStyleClose').addEventListener('click', closeStylePanel);
     $('styleBody').addEventListener('input', onStyleInput);
     $('styleBody').addEventListener('change', onStyleInput);
+    $('styleBody').addEventListener('focusout', onStyleBlur);
     $('styleBody').addEventListener('click', onStyleClick);
     $('btnClearAll').addEventListener('click', function () {
       var p = activePane();

@@ -249,6 +249,51 @@ try {
   check('空撤销栈不重绘样式面板',
     emptyUndo.keep === '1' && emptyUndo.panel === true,
     JSON.stringify(emptyUndo));
+
+  // ---------- fib 非法比例失焦后回填 ----------
+  const ratioInput = page.locator('#styleBody .fib-row input[type="number"]').last();
+  const ratioBefore = await ratioInput.inputValue();
+  await ratioInput.fill('');
+  await ratioInput.blur();
+  await page.waitForTimeout(100);
+  const ratioAfter = await ratioInput.inputValue();
+  check('非法 fib 比例失焦后回填',
+    ratioAfter === ratioBefore && ratioAfter !== '',
+    `${ratioBefore} -> ${ratioAfter}`);
+
+  // ---------- 旧矩形只改边框色时, 填充色块同步 ----------
+  await page.click('#btnStyleClose');
+  const legacyRect = await page.evaluate(() => {
+    const dl = window.KR.drawLayer;
+    const bars = window.KR.state.bars;
+    const i0 = Math.max(0, window.KR.state.cursor - 60);
+    const i1 = Math.max(0, window.KR.state.cursor - 20);
+    const d = {
+      id: 'legacy-rect', type: 'rect',
+      pts: [{ time: bars[i0].time, price: bars[i0].close }, { time: bars[i1].time, price: bars[i1].high }],
+      color: '#26a69a', width: 1.4, opacity: 1, fillOpacity: 0.1
+    };
+    dl.setDrawings([d]);
+    const a = dl.xyOf(d.pts[0]), b = dl.xyOf(d.pts[1]);
+    return { id: d.id, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  });
+  await page.mouse.dblclick(box.x + legacyRect.x, box.y + legacyRect.y);
+  await page.waitForTimeout(150);
+  const fillBefore = await page.locator('#styleBody input[data-field="fillColor"]').inputValue();
+  await page.locator('#styleBody input[data-field="color"]').evaluate((el) => {
+    el.value = '#ff0000';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(100);
+  const legacyAfter = await page.evaluate((id) => {
+    const d = window.KR.drawLayer.getDrawing(id);
+    const fill = document.querySelector('#styleBody input[data-field="fillColor"]');
+    return { color: d.color, fillColor: d.fillColor, fillInput: fill && fill.value };
+  }, legacyRect.id);
+  check('旧矩形改边框色时同步填充色块',
+    fillBefore === '#26a69a' && legacyAfter.color === '#ff0000' &&
+    legacyAfter.fillColor === '#ff0000' && legacyAfter.fillInput === '#ff0000',
+    JSON.stringify({ fillBefore, after: legacyAfter }));
 } catch (e) {
   bad.push('EXCEPTION :: ' + e.message + '\n' + e.stack);
 }

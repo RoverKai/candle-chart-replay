@@ -257,12 +257,16 @@ check('窗格内不再有独立周期 header', (await page.locator('.pane-head')
 await page.setViewportSize({ width: 900, height: 800 });
 await page.click('#layoutSwitch button[data-layout="2"]');
 await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0, { timeout: 20000 });
-await page.waitForTimeout(500);
-const narrow = await page.evaluate(() => {
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.panes[1].cursor - 50));
+await page.waitForFunction(() => !document.getElementById('replayBadge').hidden, { timeout: 5000 });
+await page.waitForTimeout(400);
+
+const measureTopbar = () => page.evaluate(() => {
   const bar = document.querySelector('.topbar');
   const period = document.getElementById('periodBar');
   const ids = ['btnChartSettings', 'btnIndicators', 'btnDrawMenu', 'btnTradePanel'];
   return {
+    badgeVisible: !document.getElementById('replayBadge').hidden,
     topbarFits: bar.scrollWidth <= bar.clientWidth + 1,
     actionsInView: ids.every(function (id) {
       const r = document.getElementById(id).getBoundingClientRect();
@@ -271,9 +275,18 @@ const narrow = await page.evaluate(() => {
     periodScrolls: period.scrollWidth > period.clientWidth
   };
 });
+
+const narrow = await measureTopbar();
+check('900px 回放角标可见', narrow.badgeVisible);
 check('900px 双窗格顶栏不横向溢出', narrow.topbarFits);
 check('900px 下右侧操作按钮仍在视口内', narrow.actionsInView);
 check('900px 下周期条自身可横向滚动', narrow.periodScrolls);
+
+await page.setViewportSize({ width: 800, height: 800 });
+await page.waitForTimeout(400);
+const narrow800 = await measureTopbar();
+check('800px 回放角标可见时顶栏不横向溢出', narrow800.topbarFits);
+check('800px 下右侧操作按钮仍在视口内', narrow800.actionsInView);
 
 await page.click('#periodBar button[data-period="60"]');
 await page.waitForFunction(() => window.KR.state.panes.some(function (p) { return p.period === 60; }), { timeout: 15000 });

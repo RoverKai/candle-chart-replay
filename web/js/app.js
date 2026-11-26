@@ -692,7 +692,10 @@
   function updateReplayBadge() {
     var badge = $('replayBadge');
     if (!badge) return;
+    var wasHidden = badge.hidden;
     badge.hidden = atCutoffEnd();
+    // 角标显隐会改变周期条可用宽度, 高亮周期可能被挤出可视区
+    if (wasHidden !== badge.hidden) syncPeriodBar(activePane());
   }
 
   /* ============================================================ 回放 */

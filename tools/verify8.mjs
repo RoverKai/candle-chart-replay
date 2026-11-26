@@ -59,6 +59,7 @@ const alignment = () => page.evaluate(() => {
 // ---- 1. 单窗格基线
 let s = await snap();
 check('初始只有 1 个窗格', (await page.locator('.pane').count()) === 1, `M${s.panes[0].period}`);
+check('初始视角无回放角标', await page.isHidden('#replayBadge'));
 
 // ---- 2. 两窗格 M5 + M1
 await page.click('#layoutSwitch button[data-layout="2"]');
@@ -315,13 +316,23 @@ await page.mouse.click(paneCenters[1].x, paneCenters[1].y);
 await page.waitForTimeout(200);
 await page.mouse.click(paneCenters[0].x, paneCenters[0].y);
 await page.waitForTimeout(300);
-check('窄屏切换活动窗格后高亮周期自动可见', await page.evaluate(() => {
+const activePeriodVisible = () => page.evaluate(() => {
   const host = document.getElementById('periodBar');
   const btn = host.querySelector('button.active');
   const hr = host.getBoundingClientRect();
   const br = btn.getBoundingClientRect();
   return hr.left <= br.left + 1 && br.right <= hr.right + 1;
-}));
+});
+check('窄屏切换活动窗格后高亮周期自动可见', await activePeriodVisible());
+
+// 角标显隐会改变周期条宽度, 进入/退出回放后高亮周期仍应可见
+await page.click('#btnEnd');
+await page.waitForFunction(() => document.getElementById('replayBadge').hidden, { timeout: 5000 });
+await page.waitForTimeout(300);
+await page.click('#btnPrev');
+await page.waitForFunction(() => !document.getElementById('replayBadge').hidden, { timeout: 5000 });
+await page.waitForTimeout(300);
+check('窄屏进入回放后高亮周期仍可见', await activePeriodVisible());
 
 await page.click('#btnDrawMenu');
 await page.waitForTimeout(200);

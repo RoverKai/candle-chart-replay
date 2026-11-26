@@ -441,6 +441,7 @@
   var lastVolumeSig = volumeSignature(current);
   var previewStyle = null;
   var volumeTouched = false;
+  var openCursors = [];
 
   function $(id) { return document.getElementById(id); }
 
@@ -682,6 +683,16 @@
     return style.upColor + '|' + style.downColor + '|' + style.volumeOpacity;
   }
 
+  /** 弹窗打开期间回放有没有推进过: 推进时增量成交量柱会用预览色写入 */
+  function cursorsAdvanced() {
+    var panes = hostOpts.getPanes ? hostOpts.getPanes() : [];
+    if (panes.length !== openCursors.length) return true;
+    for (var i = 0; i < panes.length; i++) {
+      if (panes[i].cursor !== openCursors[i]) return true;
+    }
+    return false;
+  }
+
   function scheduleVolumeRecolor() {
     if (recolorTimer) clearTimeout(recolorTimer);
     var sig = volumeSignature(draft);
@@ -715,6 +726,7 @@
     draft = clone(current);
     previewStyle = draft;
     volumeTouched = false;
+    openCursors = (hostOpts.getPanes ? hostOpts.getPanes() : []).map(function (p) { return p.cursor; });
     activeTab = 'appearance';
     lastFocus = document.activeElement;
     renderNav();
@@ -736,6 +748,7 @@
     isOpen = false;
     previewStyle = null;
     volumeTouched = false;
+    openCursors = [];
     ui.root.hidden = true;
     document.removeEventListener('keydown', onDocKey, true);
     window.removeEventListener('resize', onWindowResize);
@@ -752,7 +765,7 @@
     var saved = save(current);
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = null; }
     applyAll(hostOpts.getPanes ? hostOpts.getPanes() : [], current);
-    flushVolumeRecolor(current, false);
+    flushVolumeRecolor(current, volumeTouched && cursorsAdvanced());
     closeUi();
     if (hostOpts.onApply) hostOpts.onApply(clone(current), saved);
   }
@@ -762,7 +775,7 @@
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = null; }
     draft = clone(current);
     applyAll(hostOpts.getPanes ? hostOpts.getPanes() : [], current);
-    flushVolumeRecolor(current, volumeTouched);
+    flushVolumeRecolor(current, volumeTouched && cursorsAdvanced());
     closeUi();
     if (hostOpts.onCancel) hostOpts.onCancel(clone(current));
   }

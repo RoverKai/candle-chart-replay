@@ -367,6 +367,39 @@ try {
     volAfterPlay.bad === 0 && volAfterPlay.playing === false,
     JSON.stringify(volAfterPlay));
 
+  // ---------- 播放中改色又改回: 回放推进过就必须在应用时整列重算 ----------
+  await page.evaluate(() => window.KR.api.setCursor(120));
+  await page.click('#btnPlay');
+  await page.waitForFunction(() => window.KR.state.playing && window.KR.state.panes[0].cursor > 120,
+    { timeout: 5000 });
+  await openSettings();
+  await page.click('#csNav button[data-tab="candles"]');
+  const beforeCursor = await page.evaluate(() => window.KR.state.panes[0].cursor);
+  // 同步改色再改回, 保证 140ms 的预览重算来不及跑; 回放仍会继续推进
+  await page.evaluate(() => {
+    const input = document.querySelector('#csBody [data-field="upColor"]');
+    const original = window.KR.chartStyle.upColor;
+    input.value = '#00ff00';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.value = original;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__volSetData2 = 0;
+    const series = window.KR.volume;
+    const orig = series.setData.bind(series);
+    series.setData = function (data) {
+      window.__volSetData2++;
+      return orig(data);
+    };
+  });
+  await page.waitForFunction((n) => window.KR.state.panes[0].cursor > n, beforeCursor, { timeout: 5000 });
+  await page.click('#csApply');
+  await page.waitForTimeout(120);
+  if (await page.evaluate(() => window.KR.state.playing)) await page.click('#btnPlay');
+  await page.waitForTimeout(120);
+  const volSetDataAfterRevert = await page.evaluate(() => window.__volSetData2);
+  check('播放中改色又改回后应用仍会整列重算成交量',
+    volSetDataAfterRevert > 0, 'setData=' + volSetDataAfterRevert);
+
   // ---------- 浅色预设 ----------
   await openSettings();
   await page.selectOption('#csPreset', 'light');

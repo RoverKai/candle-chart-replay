@@ -2184,6 +2184,8 @@
     syncHistoryButton();
     applySplit();
     ChartStyle.applyAll(state.panes);   // 先把已保存主题的 CSS 变量铺上, 图表创建时再套用
+    // 窗口变窄后周期条才溢出, 需要重新把活动周期滚进可视区
+    window.addEventListener('resize', function () { syncPeriodBar(activePane()); });
 
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideMenu(); });
     document.addEventListener('mousedown', function (e) {

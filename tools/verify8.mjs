@@ -334,6 +334,13 @@ await page.waitForFunction(() => !document.getElementById('replayBadge').hidden,
 await page.waitForTimeout(300);
 check('窄屏进入回放后高亮周期仍可见', await activePeriodVisible());
 
+// 宽屏下周期条不溢出, 缩窄后才会滚动; resize 也必须校正高亮位置
+await page.setViewportSize({ width: 1400, height: 800 });
+await page.waitForTimeout(300);
+await page.setViewportSize({ width: 900, height: 800 });
+await page.waitForTimeout(300);
+check('窄屏从宽屏缩回后高亮周期仍可见', await activePeriodVisible());
+
 await page.click('#btnDrawMenu');
 await page.waitForTimeout(200);
 const menu = await page.evaluate(() => {

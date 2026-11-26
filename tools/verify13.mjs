@@ -549,7 +549,28 @@ check('清仓刷新后新持仓编号接着成交记录',
   JSON.stringify({ no: reopened && reopened.no, nos: st.nos }));
 check('清仓刷新后成交记录仍在', st.trades >= 2, JSON.stringify({ trades: st.trades }));
 
+/* ============================================================ 6h. 挂单自动成交不抢走选中持仓 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(15000));
+await page.waitForTimeout(300);
+const selected = await openPos(1);
+await openPos(1);
+await page.evaluate((id) => window.KR.book.setActivePosition(id), selected.id);
+await page.waitForTimeout(250);
+const fillC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 }), fillC);
+await page.waitForTimeout(200);
+await jumpToLow(fillC - 2);
+await page.waitForTimeout(300);
+st = await bookState();
+check('挂单自动成交不抢走选中持仓', st.count === 3 && st.active === selected.id,
+  JSON.stringify({ count: st.count, active: st.active, selected: selected.id }));
+check('成交单已加入持仓列表', st.count === 3 && st.nos.indexOf(3) >= 0,
+  JSON.stringify({ nos: st.nos }));
+
 /* ============================================================ 7. 多窗格持仓互不影响 */
+await resetBook();
+await openPos(1);
 await page.click('#layoutSwitch button[data-layout="2"]');
 await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0,
   { timeout: 20000 });

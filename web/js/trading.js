@@ -325,9 +325,10 @@
         id: o.id, lots: o.lots, contract: o.contract, sl: o.sl, tp: o.tp
       });
       this.positions.push(pos);
-      this.activePosId = pos.id;
+      // 自动成交不抢走用户当前选中的持仓: 只有在没有选中项时才默认选中新仓
+      if (!this.activePosId) this.activePosId = pos.id;
       filled++;
-      msgs.push(ORDER_LABEL[o.type] + ' 成交 @ ' + fill.toFixed(this.digits));
+      msgs.push(ORDER_LABEL[o.type] + ' 成交 #' + pos.no + ' @ ' + fill.toFixed(this.digits));
 
       if (o.oco) {
         // 尚未处理的挂单 + 已检查但未成交的挂单, 才是真正会被撤掉的数量

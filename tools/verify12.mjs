@@ -425,6 +425,50 @@ try {
   const lightTheme = await page.evaluate(() => window.ChartStyle.isLight());
   check('图例文字颜色跟随浅色背景', legendColor === 'rgb(19, 23, 34)' && lightTheme === true,
     `${legendColor} / isLight=${lightTheme}`);
+
+  // 浅色主题下 SL/TP 按钮必须用深色文字, 否则白底上看不清
+  await page.evaluate(() => {
+    const pane = window.KR.state.panes[0];
+    const bar = pane.bars[pane.cursor];
+    pane.book.open(1, { lots: 0.1, contract: 100, sl: bar.close - 20, tp: bar.close + 20 });
+    pane.drawLayer.requestRedraw();
+  });
+  await page.waitForTimeout(350);
+  const lightPills = await page.evaluate(() => {
+    const pane = window.KR.state.panes[0];
+    const canvas = document.getElementById('drawLayer');
+    const ctx = canvas.getContext('2d');
+    const dpr = canvas.width / canvas.getBoundingClientRect().width;
+    const sample = (btn) => {
+      if (!btn) return 255;
+      const x = Math.round((btn.x + btn.w / 2) * dpr);
+      const y = Math.round((btn.y + btn.h / 2) * dpr);
+      let min = 255;
+      for (let dx = -4; dx <= 4; dx++) {
+        for (let dy = -3; dy <= 3; dy++) {
+          const d = ctx.getImageData(x + dx, y + dy, 1, 1).data;
+          if (d[3] < 32) continue;
+          const lum = 0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2];
+          if (lum < min) min = lum;
+        }
+      }
+      return min;
+    };
+    return {
+      isLight: window.ChartStyle.isLight(),
+      sl: sample(pane.book._slBtn),
+      tp: sample(pane.book._tpBtn)
+    };
+  });
+  check('浅色主题 SL/TP 按钮使用深色文字',
+    lightPills.isLight === true && lightPills.sl < 110 && lightPills.tp < 110,
+    JSON.stringify(lightPills));
+  await page.evaluate(() => {
+    const pane = window.KR.state.panes[0];
+    pane.book.close('样式验证');
+    pane.drawLayer.requestRedraw();
+  });
+  await page.waitForTimeout(120);
   await page.click('#csApply');
   await page.waitForTimeout(200);
 

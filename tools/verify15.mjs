@@ -66,6 +66,7 @@ try {
     info.rect.y < info.grid.y + 80 && info.rect.h <= 50,
     JSON.stringify(info.rect));
   check('未创建任何画线', (await page.evaluate(() => window.KR.state.panes[0].drawLayer.drawings.length)) === 0);
+  check('app.js 暴露统一 hint 入口', await page.evaluate(() => typeof window.KR.api.hint === 'function'));
   await page.screenshot({ path: 'shots/23-float-tools.png' });
 
   // ---------- 设置面板 ----------
@@ -170,11 +171,20 @@ try {
   check('画线菜单可以重新显示工具栏',
     !hidden.hidden && !hidden.state.hidden &&
     (await page.locator('#btnFloatToggle').textContent()) === '隐藏悬浮工具栏');
+  const menuState = await page.evaluate(() => ({
+    panelHidden: document.getElementById('drawPanel').hidden,
+    on: document.getElementById('btnDrawMenu').classList.contains('on'),
+    aria: document.getElementById('btnDrawMenu').getAttribute('aria-expanded')
+  }));
+  check('菜单项通过画线按钮关闭面板，按钮状态一致',
+    menuState.panelHidden && !menuState.on && menuState.aria !== 'true',
+    JSON.stringify(menuState));
 
   await page.click('#btnDrawMenu');
   await page.click('#btnFloatSettingsMenu');
   await page.waitForTimeout(160);
   check('画线菜单可以打开工具设置', !(await panelInfo()).hidden);
+  check('设置菜单项同样关闭画线面板', await page.evaluate(() => document.getElementById('drawPanel').hidden));
   await page.keyboard.press('Escape');
   check('Esc 关闭设置面板', (await panelInfo()).hidden);
 
@@ -195,6 +205,23 @@ try {
   await page.click('#btnFloatDone');
 
   // ---------- 尺寸 / 布局变化 ----------
+  await page.setViewportSize({ width: 800, height: 760 });
+  await page.waitForTimeout(250);
+  await page.click('#btnTradePanel');
+  await page.waitForTimeout(350);
+  info = await toolbarInfo();
+  const gearBox = await page.locator('#btnFloatSettings').boundingBox();
+  const closeBox = await page.locator('#btnFloatClose').boundingBox();
+  check('窄屏 + 交易面板下工具栏不溢出图表', info.inside,
+    JSON.stringify({ rect: info.rect, grid: info.grid }));
+  check('窄屏下设置/隐藏按钮仍在图表内可点击',
+    !!gearBox && !!closeBox &&
+    gearBox.x >= info.grid.x && gearBox.x + gearBox.width <= info.grid.x + info.grid.w &&
+    closeBox.x >= info.grid.x && closeBox.x + closeBox.width <= info.grid.x + info.grid.w,
+    JSON.stringify({ gear: gearBox, close: closeBox, grid: info.grid }));
+  await page.click('#btnTradePanel');
+  await page.waitForTimeout(250);
+
   await page.setViewportSize({ width: 1120, height: 760 });
   await page.waitForTimeout(300);
   info = await toolbarInfo();

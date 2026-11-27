@@ -14,7 +14,6 @@
   var state = null;         // { tools: [...], x: 0..1, y: 0..1, hidden: bool }
   var observer = null;
   var syncScheduled = false;
-  var hintTimer = null;
 
   /* ------------------------------------------------------------ 工具清单 */
 
@@ -119,17 +118,11 @@
 
   /* ------------------------------------------------------------ 显隐 */
 
-  /** app.js 的 hint 是私有的, 这里用同一个 #hint 元素兜底显示提示 */
+  /** 统一走 app.js 的 hint, 复用同一个 #hint 元素和定时器, 避免两条提示互相截断 */
   function showHint(msg) {
-    var el = $('hint');
-    if (!el) return;
-    el.textContent = msg;
-    el.classList.add('show');
-    if (hintTimer) clearTimeout(hintTimer);
-    hintTimer = setTimeout(function () {
-      el.classList.remove('show');
-      hintTimer = null;
-    }, 2600);
+    if (global.KR && global.KR.api && typeof global.KR.api.hint === 'function') {
+      global.KR.api.hint(msg);
+    }
   }
 
   function syncMenu() {
@@ -150,9 +143,7 @@
     if (!hidden) requestAnimationFrame(layoutToolbar);
     if (changed && !silent) {
       // 提示文案与侧边栏入口对应, 隐藏后仍知道去哪里找回
-      var msg = hidden ? '悬浮工具栏已隐藏，可在「画线 ▾」中重新显示' : '悬浮工具栏已显示';
-      if (global.KR && global.KR.api && typeof global.KR.api.hint === 'function') global.KR.api.hint(msg);
-      else showHint(msg);
+      showHint(hidden ? '悬浮工具栏已隐藏，可在「画线 ▾」中重新显示' : '悬浮工具栏已显示');
     }
   }
 
@@ -309,6 +300,14 @@
     if (gear) gear.classList.remove('on');
   }
 
+  /** 走 app.js 自己的「画线 ▾」开关关闭弹层, 让按钮/面板状态保持同一入口 */
+  function closeDrawPanel() {
+    var panel = $('drawPanel');
+    var btn = $('btnDrawMenu');
+    if (panel && !panel.hidden && btn) btn.click();
+    else if (panel) panel.hidden = true;
+  }
+
   /* ------------------------------------------------------------ 拖动 */
 
   function bindDrag() {
@@ -405,8 +404,7 @@
     if (menuSettings) {
       menuSettings.addEventListener('click', function (e) {
         e.stopPropagation();
-        var dp = $('drawPanel');
-        if (dp) dp.hidden = true;
+        closeDrawPanel();
         openSettings();
       });
     }
@@ -415,8 +413,7 @@
     if (menuToggle) {
       menuToggle.addEventListener('click', function (e) {
         e.stopPropagation();
-        var dp = $('drawPanel');
-        if (dp) dp.hidden = true;
+        closeDrawPanel();
         setHidden(!state.hidden);
       });
     }

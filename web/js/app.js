@@ -1719,6 +1719,8 @@
           var id = item.dataset.id;
           if (e.target.closest('.pos-levels')) {
             book.setActivePosition(id);
+            // 非活动持仓的图上标签/命中区要立即切到这笔, 与普通选中行保持一致
+            if (pane.drawLayer) pane.drawLayer.requestRedraw();
             openLevelPanel(pane, id, null, e.clientX, e.clientY, false);
             return;
           }

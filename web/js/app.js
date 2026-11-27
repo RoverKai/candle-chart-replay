@@ -233,9 +233,9 @@
         if (pane.drawLayer) pane.drawLayer.requestRedraw();
       },
       onHint: hint,
-      onEditLevel: function (id, kind, x, y, auto) {
+      onEditLevel: function (id, kind, x, y, auto, undo) {
         var r = pane.els.wrap.getBoundingClientRect();
-        openLevelPanel(pane, id, kind, r.left + x, r.top + y, auto);
+        openLevelPanel(pane, id, kind, r.left + x, r.top + y, auto, undo);
       }
     });
 
@@ -1912,16 +1912,27 @@
   }
 
   function closeLevelPanel() {
+    var ctx = levelCtx;
     levelCtx = null;
     var pop = $('levelPop');
     if (pop) pop.hidden = true;
+    if (!ctx || !ctx.undo) return;
+    var book = ctx.pane.book;
+    var p = book ? book._posById(ctx.id) : null;
+    if (!p) return;
+    var u = ctx.undo;
+    // 只在档位仍保持拖动后的值时回滚, 避免覆盖回放中已经触发/变化的仓位
+    if (p[u.kind] === u.nextPrice && p[u.kind + 'Lots'] === u.nextLots) {
+      book.restoreLevel(ctx.id, u.kind, u.prevPrice, u.prevLots);
+    }
   }
 
   /**
    * 打开某笔持仓的止盈/止损设置。
    * kind 从成本线拖动/点击止盈止损线时传入, 用于高亮自动识别的那一行。
+   * undo 是成本线拖动写入前的快照, 直接关闭面板时用于撤销这次拖动。
    */
-  function openLevelPanel(pane, id, kind, clientX, clientY, auto) {
+  function openLevelPanel(pane, id, kind, clientX, clientY, auto, undo) {
     if (!pane || !pane.book) return;
     if (state.activeIndex !== pane.index) setActive(pane.index);
     var p = pane.book._posById(id);
@@ -1929,7 +1940,7 @@
     var pop = $('levelPop');
     if (!pop) return;
 
-    levelCtx = { pane: pane, id: id, view: levelSnapshot(p) };
+    levelCtx = { pane: pane, id: id, view: levelSnapshot(p), undo: undo || null };
     $('lpPos').textContent = levelPosText(pane, p);
 
     ['sl', 'tp'].forEach(function (k) {
@@ -1938,7 +1949,7 @@
     });
 
     $('lpHint').textContent = auto && kind
-      ? '已自动识别为' + LEVEL_LABEL[kind] + '；设置手数后点「应用」。'
+      ? '已自动识别为' + LEVEL_LABEL[kind] + '；点「应用」保留，直接关闭会撤销这次拖动。'
       : '拖到现价盈利侧自动识别为止盈，亏损侧为止损；点标签右侧的 × 可直接取消。';
 
     pop.hidden = false;
@@ -1978,10 +1989,21 @@
     ['sl', 'tp'].forEach(function (k) {
       var priceEl = levelPriceInput(k);
       var lotsEl = levelLotsInput(k);
+      if (priceEl.validity && priceEl.validity.badInput) {
+        bad = { kind: k, el: priceEl, msg: LEVEL_LABEL[k] + '价格格式不正确' };
+        return;
+      }
+      if (lotsEl.validity && lotsEl.validity.badInput) {
+        bad = { kind: k, el: lotsEl, msg: LEVEL_LABEL[k] + '手数格式不正确' };
+        return;
+      }
       var rawPrice = String(priceEl.value || '').trim();
       var rawLots = String(lotsEl.value || '').trim();
       if (!rawPrice) {
-        ops.push({ kind: k, clear: true });
+        // 空价格不再隐式取消档位, 避免把浏览器判为非法而返回的空串当成“清除”
+        if (p[k] != null || rawLots) {
+          bad = { kind: k, el: priceEl, msg: LEVEL_LABEL[k] + '价格不能为空；要取消请点「清除」' };
+        }
         return;
       }
       var price = parseFloat(rawPrice);
@@ -2004,7 +2026,7 @@
       var lotsChanged = (lots == null) !== (storedLots == null) ||
         (lots != null && storedLots != null && Math.abs(lots - storedLots) > 1e-9);
       ops.push({
-        kind: k, clear: false, price: price, lots: lots,
+        kind: k, price: price, lots: lots,
         priceChanged: priceChanged, lotsChanged: lotsChanged
       });
     });
@@ -2017,12 +2039,6 @@
 
     var msgs = [];
     ops.forEach(function (op) {
-      if (op.clear) {
-        if (p[op.kind] != null && book.clearLevel(levelCtx.id, op.kind, true)) {
-          msgs.push('已取消' + LEVEL_LABEL[op.kind]);
-        }
-        return;
-      }
       if (!op.priceChanged && !op.lotsChanged) return;
       // 价格没改但手数改了时不要重新夹价格, 否则光标在档位错误一侧会把未编辑的一侧也改掉
       var res = op.priceChanged
@@ -2031,6 +2047,7 @@
       if (res) msgs.push(LEVEL_LABEL[op.kind] + ' ' + res.price.toFixed(dg) + ' · ' + fmtLots(res.lots) + ' 手');
     });
     book.onUpdate();      // 批量修改后统一刷新/落盘
+    levelCtx.undo = null; // 已点应用, 关闭时不再撤销拖动
     hint(msgs.length ? msgs.join('；') : '没有修改');
     closeLevelPanel();
   }
@@ -2042,6 +2059,7 @@
     var p = book ? book._posById(levelCtx.id) : null;
     if (!p) { closeLevelPanel(); return; }
     if (!book.clearLevel(levelCtx.id, kind, true)) return;
+    levelCtx.undo = null; // 用户显式清除, 关闭时保留清除结果
     book.onUpdate();
     levelPriceInput(kind).value = '';
     levelLotsInput(kind).value = '';

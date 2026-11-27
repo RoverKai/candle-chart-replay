@@ -196,6 +196,22 @@
     return { price: p[kind], lots: this.levelLots(p, kind) };
   };
 
+  /** 原样恢复拖动前的档位 (用于关闭设置面板时撤销这次拖动), 不再夹紧价格 */
+  TradeBook.prototype.restoreLevel = function (id, kind, price, lots) {
+    var p = this._posById(id);
+    if (!p || (kind !== 'sl' && kind !== 'tp')) return false;
+    var lv = lots == null ? null : Math.min(roundLots(lots), p.lots);
+    if (kind === 'sl') {
+      p.sl = price != null ? price : null;
+      p.slLots = price != null ? lv : null;
+    } else {
+      p.tp = price != null ? price : null;
+      p.tpLots = price != null ? lv : null;
+    }
+    this.onUpdate();
+    return true;
+  };
+
   /** 取消某个止盈/止损; silent=true 时由调用方统一刷新 */
   TradeBook.prototype.clearLevel = function (id, kind, silent) {
     var p = this._posById(id);
@@ -1075,12 +1091,21 @@
       var draft = this._draft;
       this._draft = null;
       if (typeof mode === 'object' && mode.moved && draft) {
-        var prevLots = draft.kind === 'sl' ? p.slLots : p.tpLots;
-        var res = this.setLevel(id, draft.kind, draft.price, prevLots);
+        var levelKey = draft.kind;
+        var prevPrice = p[levelKey];
+        var prevLots = p[levelKey + 'Lots'];
+        var res = this.setLevel(id, levelKey, draft.price, prevLots);
         if (res) {
-          this.onHint((draft.kind === 'sl' ? '已自动识别为止损' : '已自动识别为止盈') +
+          this.onHint((levelKey === 'sl' ? '已自动识别为止损' : '已自动识别为止盈') +
             ' ' + res.price.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
-          this.onEditLevel(id, draft.kind, at.x, at.y, true);
+          // 关闭面板时若还没点应用, 用这个快照撤销这次拖动
+          this.onEditLevel(id, levelKey, at.x, at.y, true, {
+            kind: levelKey,
+            prevPrice: prevPrice,
+            prevLots: prevLots,
+            nextPrice: p[levelKey],
+            nextLots: p[levelKey + 'Lots']
+          });
           return;
         }
       }

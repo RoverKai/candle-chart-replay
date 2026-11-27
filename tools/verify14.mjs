@@ -326,7 +326,8 @@ st = await bookState();
 panel = await page.evaluate(() => ({ hint: document.getElementById('lpHint').textContent }));
 check('空头拖到现价上方自动识别为止损', st.sl != null && st.tp == null, JSON.stringify({ sl: st.sl, tp: st.tp }));
 check('空头止损提示正确', panel.hint.includes('已自动识别为') && panel.hint.includes('止损'), panel.hint);
-await page.click('#lpClose');
+await page.click('#lpApply');   // 应用后保留拖出的止损
+await page.waitForTimeout(300);
 await dragTag(st.close - 40);
 st = await bookState();
 check('空头拖到现价下方自动识别为止盈', st.tp != null && st.sl != null, JSON.stringify({ sl: st.sl, tp: st.tp }));
@@ -472,6 +473,43 @@ if (rewriteSpot) {
   check('只改手数会更新该侧手数', st.tpLots === 0.06, JSON.stringify({ tp: st.tp, tpLots: st.tpLots }));
 }
 if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
+
+/* ============================================================ 12. 空价格/非法输入不会被当成清除 */
+await page.evaluate(() => window.KR.api.openLevel(window.KR.book.position.id, 'tp'));
+await page.waitForTimeout(350);
+const beforeEmpty = await bookState();
+await page.fill('#lpTpPrice', '');
+await page.click('#lpApply');
+await page.waitForTimeout(300);
+st = await bookState();
+const emptyHint = await page.textContent('#hint');
+check('空价格点应用不会取消已有止盈', st.tp === beforeEmpty.tp,
+  JSON.stringify({ before: beforeEmpty.tp, after: st.tp }));
+check('空价格应用会提示改用清除', emptyHint.includes('不能为空') && emptyHint.includes('清除'), emptyHint);
+if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
+
+/* ============================================================ 13. 关闭面板撤销刚完成的成本线拖动 */
+await page.evaluate(() => window.KR.api.setCursor(13000));
+await page.waitForTimeout(400);
+st = await bookState();
+const oldTp = st.tp;
+await dragTag(st.close + 35);
+st = await bookState();
+const draggedTp = st.tp;
+check('拖动后暂存的新止盈已写入', draggedTp != null && draggedTp !== oldTp,
+  JSON.stringify({ oldTp, draggedTp }));
+await page.click('#lpClose');
+await page.waitForTimeout(400);
+st = await bookState();
+check('直接关闭面板会撤销这次拖动', st.tp === oldTp, JSON.stringify({ oldTp, now: st.tp }));
+await dragTag(st.close + 35);
+st = await bookState();
+const committedTp = st.tp;
+await page.click('#lpApply');
+await page.waitForTimeout(400);
+st = await bookState();
+check('点应用后保留拖出的止盈', st.tp === committedTp && st.tp !== oldTp,
+  JSON.stringify({ committedTp, now: st.tp }));
 
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));

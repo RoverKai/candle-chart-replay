@@ -7,6 +7,11 @@
   var SL_COLOR = '#ef5350';
   var TP_COLOR = '#26a69a';
   var LEVEL_LABEL = { sl: '止损', tp: '止盈' };
+  var DRAG_KIND = {
+    'sl-button': 1, 'sl-line': 1,
+    'tp-button': 1, 'tp-line': 1,
+    'entry-line': 1
+  };
 
   // 挂单: 买入限价/卖出限价/买入止损/卖出止损
   var ORDER_DIR = { buy_limit: 1, sell_limit: -1, buy_stop: 1, sell_stop: -1 };
@@ -1030,6 +1035,8 @@
     var mode = this._dragMode;
     if (!mode || !this.getPriceAt) return;
     var kind = typeof mode === 'string' ? mode : mode.kind;
+    // 白名单: 取消按钮等命中不会进入拖拽; 未知 kind 也不能落进下面的止盈分支
+    if (!DRAG_KIND[kind]) return;
     var id = typeof mode === 'string' ? this.activePosId : mode.id;
     // 拖哪笔改哪笔: 持仓在拖拽途中被平掉时直接忽略, 不能回退到别的持仓
     var p = this._posById(id);
@@ -1086,6 +1093,7 @@
     var at = this._lastPointer || { x: 0, y: 0 };
     var p = this._posById(id);
     if (!p) { this._draft = null; return; }
+    if (!DRAG_KIND[kind]) { this._draft = null; return; }
 
     if (kind === 'entry-line') {
       var draft = this._draft;
@@ -1227,7 +1235,9 @@
     for (var i = 0; i < raw.length; i++) {
       var p = raw[i];
       if (!p || !p.dir || p.entryTime == null || p.entryPrice == null) continue;
-      var lots = p.lots != null ? roundLots(p.lots) : this.lots;
+      var rawLots = p.lots != null ? Number(p.lots) : this.lots;
+      // 旧存档保留原本的手数, 不能借迁移把 0.015 静默放大成 0.02
+      var lots = isFinite(rawLots) && rawLots > 0 ? Math.max(0.01, rawLots) : this.lots;
       var sl = p.sl != null ? p.sl : null;
       var tp = p.tp != null ? p.tp : null;
       this.positions.push({

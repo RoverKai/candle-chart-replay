@@ -511,6 +511,53 @@ st = await bookState();
 check('点应用后保留拖出的止盈', st.tp === committedTp && st.tp !== oldTp,
   JSON.stringify({ committedTp, now: st.tp }));
 
+/* ============================================================ 14. 取消按钮上轻微移动不报错、未知拖拽类型不误写 */
+await page.waitForTimeout(300);
+const xHit = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  return { hit: b._levelHits[p.id + ':sl'], tp: p.tp };
+});
+const errBeforeX = errors.length;
+await page.mouse.move(box.x + xHit.hit.x + 8, box.y + xHit.hit.y + 8);
+await page.mouse.down();
+await page.mouse.move(box.x + xHit.hit.x + 8, box.y + xHit.hit.y + 9);
+await page.mouse.up();
+await page.waitForTimeout(300);
+st = await bookState();
+check('取消按钮上轻微移动不报错', errors.length === errBeforeX, errors.slice(errBeforeX).join(' | '));
+check('取消按钮仍能取消止损', st.sl == null, JSON.stringify({ sl: st.sl }));
+check('取消止损不会误写止盈', st.tp === xHit.tp, JSON.stringify({ before: xHit.tp, after: st.tp }));
+const unknownKind = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  const before = p.tp;
+  b._dragMode = { kind: 'sl-remove', id: p.id, startX: 0, startY: 0, moved: true };
+  b.dragMove(300, window.KR.candle.priceToCoordinate(b.currentClose() + 30));
+  b._dragMode = null;
+  return { before: before, after: p.tp };
+});
+check('未知拖拽类型不会误写止盈', unknownKind.after === unknownKind.before, JSON.stringify(unknownKind));
+
+/* ============================================================ 15. 旧存档手数不被迁移放大 */
+const legacyLots = await page.evaluate(() => {
+  const b = window.KR.book;
+  const bar = window.KR.state.bars[window.KR.state.cursor];
+  b.restore({
+    positions: [{
+      id: 'legacy-015', no: 1, dir: 1,
+      entryTime: bar.time, entryPrice: bar.close,
+      lots: 0.015, contract: 100, sl: null, tp: null
+    }],
+    activePosId: 'legacy-015',
+    nextNo: 2,
+    trades: [],
+    orders: []
+  });
+  return { lots: b.position.lots };
+});
+check('旧存档 0.015 手不会被迁移放大', legacyLots.lots === 0.015, JSON.stringify(legacyLots));
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

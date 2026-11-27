@@ -103,7 +103,7 @@ select:focus { border-color: var(--accent); }
 .periods {
   display: flex;
   gap: 2px;
-  margin-left: 6px;
+  margin-left: 0;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -125,6 +125,44 @@ select:focus { border-color: var(--accent); }
 .periods button:hover { color: var(--text); background: var(--panel-3); }
 .periods button.active { background: var(--accent); color: #fff; font-weight: 600; }
 .periods button[disabled] { opacity: .32; cursor: default; background: transparent; color: var(--muted-2); }
+
+/* 周期组是顶栏里最宽的一块: 窄屏时让它自身收缩 + 横向滚动,
+   保证右侧图表设置 / 画线 / 交易按钮始终留在视口内 */
+.period-field {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.period-field .periods {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-3) transparent;
+}
+
+.period-field .periods::-webkit-scrollbar { height: 4px; }
+.period-field .periods::-webkit-scrollbar-thumb {
+  background: var(--panel-3);
+  border-radius: 2px;
+}
+.period-field .periods::-webkit-scrollbar-track { background: transparent; }
+
+/* 多窗格时标出「周期」作用于哪个窗格 */
+.pane-scope {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  letter-spacing: .3px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.pane-scope[hidden] { display: none; }
 
 .grow { flex: 1 1 auto; }
 
@@ -581,6 +619,12 @@ button.ghost.icon svg { display: block; }
 }
 
 .replay-badge[hidden] { display: none; }
+
+/* 回放状态挂在顶栏, 与图表内的时间轴共享状态保持一致 */
+.topbar .replay-badge {
+  position: static;
+  flex: 0 0 auto;
+}
 
 .hint {
   position: absolute;
@@ -1382,43 +1426,6 @@ body.resizing-col * { cursor: row-resize !important; }
   box-shadow: 0 0 0 1px rgba(41, 98, 255, .18);
 }
 
-.pane-head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 8px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.pane-head .periods {
-  margin-left: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  gap: 1px;
-}
-
-.pane-head .periods button {
-  padding: 3px 7px;
-  font-size: 11px;
-}
-
-.pane-tag {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--muted-2);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.pane-head .replay-badge {
-  position: static;
-  flex: 0 0 auto;
-}
-
 .draw-layer {
   position: absolute;
   inset: 0;
@@ -1747,4 +1754,13 @@ body.resizing-col * { cursor: row-resize !important; }
   #csPreview { height: 84px; }
   .cs-body { padding: 2px 12px 12px; }
   .cs-foot { padding: 10px 12px; }
+}
+
+/* Narrow screens: keep the period strip from pushing actions off the topbar */
+@media (max-width: 1320px) {
+  .topbar { gap: 5px; padding: 0 8px; }
+  .brand { padding-right: 2px; }
+  .periods button { padding: 4px 6px; font-size: 11.5px; }
+  .layout-switch { margin-left: 4px; }
+  .split-switch { margin-left: 4px; }
 }

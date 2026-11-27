@@ -1707,11 +1707,13 @@
       Array.prototype.forEach.call(posBox.querySelectorAll('.pos-item'), function (item) {
         item.addEventListener('click', function (e) {
           if (e.target.closest('.pos-close')) return;
-          if (!book.setActivePosition(item.dataset.id)) return;
+          var id = item.dataset.id;
           if (e.target.closest('.pos-levels')) {
-            openLevelPanel(pane, item.dataset.id, null, e.clientX, e.clientY, false);
+            book.setActivePosition(id);
+            openLevelPanel(pane, id, null, e.clientX, e.clientY, false);
             return;
           }
+          if (!book.setActivePosition(id)) return;
           if (pane.drawLayer) pane.drawLayer.requestRedraw();
         });
       });
@@ -1995,7 +1997,16 @@
           return;
         }
       }
-      ops.push({ kind: k, clear: false, price: price, lots: lots });
+      var storedPrice = p[k];
+      var storedLots = p[k + 'Lots'];
+      var tick = 1 / Math.pow(10, dg);
+      var priceChanged = storedPrice == null || Math.abs(price - storedPrice) >= tick / 2;
+      var lotsChanged = (lots == null) !== (storedLots == null) ||
+        (lots != null && storedLots != null && Math.abs(lots - storedLots) > 1e-9);
+      ops.push({
+        kind: k, clear: false, price: price, lots: lots,
+        priceChanged: priceChanged, lotsChanged: lotsChanged
+      });
     });
 
     if (bad) {
@@ -2012,7 +2023,11 @@
         }
         return;
       }
-      var res = book.setLevel(levelCtx.id, op.kind, op.price, op.lots);
+      if (!op.priceChanged && !op.lotsChanged) return;
+      // 价格没改但手数改了时不要重新夹价格, 否则光标在档位错误一侧会把未编辑的一侧也改掉
+      var res = op.priceChanged
+        ? book.setLevel(levelCtx.id, op.kind, op.price, op.lots)
+        : book.setLevelLots(levelCtx.id, op.kind, op.lots);
       if (res) msgs.push(LEVEL_LABEL[op.kind] + ' ' + res.price.toFixed(dg) + ' · ' + fmtLots(res.lots) + ' 手');
     });
     book.onUpdate();      // 批量修改后统一刷新/落盘

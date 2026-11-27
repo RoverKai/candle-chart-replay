@@ -42,6 +42,14 @@
     return Math.min(roundLots(n), maxLots);
   }
 
+  /** 面板/接口传入的止盈止损手数: 空值表示全部, 非法值由 ok=false 拒绝 */
+  function parseLevelLots(v, maxLots) {
+    if (v == null || v === '') return { ok: true, value: null };
+    var n = Number(v);
+    if (!isFinite(n) || n <= 0) return { ok: false, value: null };
+    return { ok: true, value: Math.min(roundLots(n), maxLots) };
+  }
+
   function TradeBook(opts) {
     this.getBars = opts.getBars;
     this.getCursor = opts.getCursor;
@@ -91,7 +99,7 @@
     this.bars = ctx.bars || [];
     var saved = null;
     try { saved = localStorage.getItem('kline-replay:lots:' + this.symbol); } catch (e) { }
-    this.lots = saved ? parseFloat(saved) || 0.1 : 0.1;
+    this.lots = roundLots(saved ? parseFloat(saved) || 0.1 : 0.1);
     var contract = CONTRACT_DEFAULT[this.symbol.toUpperCase()];
     this.contract = contract || 100;
     var savedContract = null;
@@ -101,7 +109,7 @@
   };
 
   TradeBook.prototype.setLots = function (v) {
-    this.lots = Math.max(0.01, parseFloat(v) || 0.1);
+    this.lots = roundLots(parseFloat(v) || 0.1);
     try { localStorage.setItem('kline-replay:lots:' + this.symbol, String(this.lots)); } catch (e) { }
   };
 
@@ -161,12 +169,9 @@
     value = kind === 'sl' ? this._clampStop(value, p.dir) : this._clampTarget(value, p.dir);
     value = this._roundPrice(value);
 
-    var lv = null;
-    if (lots != null && lots !== '') {
-      lv = Number(lots);
-      if (!isFinite(lv) || lv <= 0) return null;
-      lv = Math.min(roundLots(lv), p.lots);
-    }
+    var parsed = parseLevelLots(lots, p.lots);
+    if (!parsed.ok) return null;
+    var lv = parsed.value;
 
     if (kind === 'sl') {
       p.sl = value;
@@ -177,6 +182,18 @@
     }
     this.onUpdate();
     return { price: value, lots: this.levelLots(p, kind) };
+  };
+
+  /** 只改手数不改价格: 避免未编辑的一侧被现价重新夹紧 */
+  TradeBook.prototype.setLevelLots = function (id, kind, lots) {
+    var p = this._posById(id);
+    if (!p || (kind !== 'sl' && kind !== 'tp') || p[kind] == null) return null;
+    var parsed = parseLevelLots(lots, p.lots);
+    if (!parsed.ok) return null;
+    if (kind === 'sl') p.slLots = parsed.value;
+    else p.tpLots = parsed.value;
+    this.onUpdate();
+    return { price: p[kind], lots: this.levelLots(p, kind) };
   };
 
   /** 取消某个止盈/止损; silent=true 时由调用方统一刷新 */
@@ -255,7 +272,7 @@
       dir: dir,
       entryTime: time,
       entryPrice: price,
-      lots: opts.lots != null ? opts.lots : this.lots,
+      lots: roundLots(opts.lots != null ? opts.lots : this.lots),
       contract: opts.contract != null ? opts.contract : this.contract,
       sl: opts.sl != null ? opts.sl : null,
       tp: opts.tp != null ? opts.tp : null,
@@ -357,7 +374,7 @@
       id: uid(),
       type: type,
       price: price,
-      lots: opts.lots != null ? opts.lots : this.lots,
+      lots: roundLots(opts.lots != null ? opts.lots : this.lots),
       contract: opts.contract != null ? opts.contract : this.contract,
       sl: opts.sl != null ? opts.sl : null,
       tp: opts.tp != null ? opts.tp : null,
@@ -552,7 +569,13 @@
       pnl: this._pnl(pos, exitPrice, lots)
     };
 
-    pos.lots = roundLots(pos.lots - lots);
+    var remaining = Math.round((pos.lots - lots) * 100) / 100;
+    if (remaining < 0.01 - 1e-9) {
+      // 剩余不足最小手数: 整笔平掉, 避免 0.01 下限把仓位凭空补大
+      this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind]);
+      return;
+    }
+    pos.lots = remaining;
     if (kind === 'sl') {
       pos.sl = null;
       pos.slLots = null;

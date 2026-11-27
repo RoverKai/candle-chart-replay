@@ -205,6 +205,13 @@ st = await bookState();
 check('可在面板手工设置止损价格', st.sl != null && Math.abs(st.sl - manualSl) < 0.02, JSON.stringify({ sl: st.sl, want: manualSl }));
 check('可在面板手工设置止损手数', st.slLots === 0.02, String(st.slLots));
 
+// 持仓行「设置」：即使点的是当前已选中的持仓也要能打开面板
+await page.click('#posBlock .pos-levels');
+await page.waitForTimeout(300);
+check('持仓行设置入口可打开面板', await page.locator('#levelPop').isVisible());
+await page.click('#lpClose');
+await page.waitForTimeout(200);
+
 await page.waitForTimeout(300);
 const tpX = await page.evaluate(() => {
   const b = window.KR.book;
@@ -391,6 +398,80 @@ check('清除止损不覆盖另一侧未保存的价格', preserved.sl == null &
   JSON.stringify(preserved));
 check('清除止损不覆盖另一侧未保存的手数', preserved.tpLots === '0.01', JSON.stringify(preserved));
 await page.click('#lpClose');
+
+/* ============================================================ 10. 非 0.01 网格手数不会虚增仓位 */
+const normSetup = await page.evaluate(() => {
+  const b = window.KR.book;
+  b.clear();
+  window.KR.api.setCursor(12000);
+  b.setLots(0.015);
+  b.open(1, { lots: 0.015, contract: 100 });
+  const p = b.position;
+  return { bookLots: b.lots, lots: p.lots, id: p.id };
+});
+await page.waitForTimeout(400);
+check('非 0.01 网格手数会归一化', normSetup.lots === 0.02 && normSetup.bookLots === 0.02,
+  JSON.stringify(normSetup));
+const lotPartial = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  const tp = b.currentClose() + 1;
+  b.setLevel(p.id, 'tp', tp, 0.01);
+  return { tp, before: p.lots };
+});
+await page.waitForTimeout(350);
+const lotIdx = await page.evaluate((tp) => {
+  const bars = window.KR.state.bars;
+  for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].high >= tp) return i;
+  return -1;
+}, lotPartial.tp);
+check('找到非网格手数的部分平仓 K 线', lotIdx > 0, String(lotIdx));
+if (lotIdx > 0) await page.evaluate((i) => window.KR.api.setCursor(i), lotIdx);
+await page.waitForTimeout(500);
+st = await bookState();
+const lastLotTrade = st.trades[st.trades.length - 1];
+check('非网格手数部分平仓不虚增仓位',
+  st.count === 1 && lastLotTrade &&
+  Math.abs(st.lots + lastLotTrade.lots - lotPartial.before) < 1e-9,
+  JSON.stringify({ before: lotPartial.before, remaining: st.lots, closed: lastLotTrade && lastLotTrade.lots }));
+
+/* ============================================================ 11. 只改一侧手数不改写另一侧价格 */
+const rewriteSpot = await page.evaluate(() => {
+  const bars = window.KR.state.bars;
+  const i = 13000;
+  for (let j = i - 1; j >= i - 500; j--) {
+    if (bars[j].close < bars[i].close - 10) {
+      return { i, j, ci: bars[i].close, cj: bars[j].close };
+    }
+  }
+  return null;
+});
+check('找到档位夹紧测试位置', !!rewriteSpot, JSON.stringify(rewriteSpot));
+let silent = null;
+if (rewriteSpot) {
+  silent = await page.evaluate((spot) => {
+    const b = window.KR.book;
+    b.clear();
+    window.KR.api.setCursor(spot.i);
+    b.open(1, { lots: 0.1, contract: 100 });
+    const p = b.position;
+    b.setLevel(p.id, 'sl', (spot.ci + spot.cj) / 2, 0.02);
+    b.setLevel(p.id, 'tp', spot.ci + 20, 0.04);
+    window.KR.api.openLevel(p.id, null);
+    return { id: p.id, sl: p.sl, tp: p.tp };
+  }, rewriteSpot);
+  await page.waitForTimeout(400);
+  await page.evaluate((j) => window.KR.api.setCursor(j), rewriteSpot.j);
+  await page.waitForTimeout(400);
+  await page.fill('#lpTpLots', '0.06');
+  await page.click('#lpApply');
+  await page.waitForTimeout(400);
+  st = await bookState();
+  check('只改手数不会改写未编辑的止损', st.sl === silent.sl,
+    JSON.stringify({ before: silent.sl, after: st.sl, close: st.close }));
+  check('只改手数会更新该侧手数', st.tpLots === 0.06, JSON.stringify({ tp: st.tp, tpLots: st.tpLots }));
+}
+if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
 
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));

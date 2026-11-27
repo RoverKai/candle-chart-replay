@@ -156,11 +156,6 @@
     section.className = 'pane';
     section.dataset.index = String(index);
     section.innerHTML =
-      '<div class="pane-head">' +
-        '<div class="periods"' + idAttr('periodBar') + '></div>' +
-        '<span class="pane-tag"></span>' +
-        '<div class="replay-badge"' + idAttr('replayBadge') + ' hidden>回放中</div>' +
-      '</div>' +
       '<div class="chart-wrap"' + idAttr('chartWrap') + '>' +
         '<div class="chart-host"' + idAttr('chartHost') + '></div>' +
         '<canvas class="draw-layer"' + idAttr('drawLayer') + '></canvas>' +
@@ -173,9 +168,6 @@
       ind: {}, overlays: {}, subSeries: {},
       els: {
         section: section,
-        periods: section.querySelector('.periods'),
-        tag: section.querySelector('.pane-tag'),
-        badge: section.querySelector('.replay-badge'),
         wrap: section.querySelector('.chart-wrap'),
         host: section.querySelector('.chart-host'),
         canvas: section.querySelector('.draw-layer'),
@@ -301,6 +293,7 @@
       p.els.section.classList.toggle('active', p.index === index);
       if (p.index !== index && p.drawLayer) p.drawLayer.setTool('cursor');
     });
+    syncPeriodBar(state.panes[index]);
     renderTradePanel();
     currentTool = 'cursor';
     syncToolButtons();
@@ -334,8 +327,6 @@
       paneApplyAll(pane, true);
       paneFocus(pane);
 
-      pane.els.tag.textContent = state.symbol + ' · ' + srvLabel(state.serverId);
-      buildPeriodBar(pane, res.period);
       loadDrawings(pane);
 
       if (pane.index === 0 && bars.length) {
@@ -347,45 +338,82 @@
       pane.book.setContext({ symbol: state.symbol, digits: res.digits, bars: bars });
       loadTrades(pane);
 
-      paneUpdateBadge(pane);
+      if (activePane() === pane) syncPeriodBar(pane);
+      updateReplayBadge();
       paneUpdateLegendLast(pane);
       return pane;
     });
   }
 
-  function buildPeriodBar(pane, activePeriod) {
-    var host = pane.els.periods;
+  /** 顶栏周期条: 全局只有一个, 作用于当前活动窗格 */
+  function buildPeriodBar() {
+    var host = $('periodBar');
+    if (!host) return;
     var avail = availablePeriods();
     host.innerHTML = '';
     PERIOD_ORDER.forEach(function (period) {
       var b = document.createElement('button');
+      b.type = 'button';
       b.textContent = perLabel(period);
       b.dataset.period = String(period);
-      if (period === activePeriod) b.classList.add('active');
-      if (avail.indexOf(period) < 0) {
-        b.disabled = true;
-        b.title = '该周期没有本地数据';
-      }
-      b.addEventListener('click', function () {
-        if (period === pane.period) { setActive(pane.index); return; }
-        setActive(pane.index);
-        var keepT = cutoffTime();
-        var multi = state.panes.length > 1;
-        var arr = host.querySelectorAll('button');
-        for (var i = 0; i < arr.length; i++) arr[i].classList.toggle('active', arr[i].dataset.period === String(period));
-        paneLoad(pane, period).then(function () {
-          if (!multi && pane === p0()) {
-            // 单窗格: 回到该周期自己的记忆点 (没有就停在最新)
-            if (!restorePosition()) setCutoff(cutoffTime());
-          } else if (keepT) {
-            // 多窗格: 时间轴共享, 换周期只改变显示粒度, 时刻不动
-            setCutoff(keepT);
-          }
-          updateStatus();
-        }).catch(function (e) { hint('载入失败: ' + e.message); });
-      });
+      b.title = avail.indexOf(period) >= 0 ? '切换到 ' + perLabel(period) : '该周期没有本地数据';
+      if (avail.indexOf(period) < 0) b.disabled = true;
+      b.addEventListener('click', function () { selectPeriod(period); });
       host.appendChild(b);
     });
+    syncPeriodBar(activePane());
+  }
+
+  function selectPeriod(period) {
+    var pane = activePane();
+    if (!pane || period === pane.period) { syncPeriodBar(pane); return; }
+    var keepT = cutoffTime();
+    var multi = state.panes.length > 1;
+    paneLoad(pane, period).then(function () {
+      if (!multi && pane === p0()) {
+        // 单窗格: 回到该周期自己的记忆点 (没有就停在最新)
+        if (!restorePosition()) setCutoff(cutoffTime());
+      } else if (keepT) {
+        // 多窗格: 时间轴共享, 换周期只改变显示粒度, 时刻不动
+        setCutoff(keepT);
+      }
+      updateStatus();
+    }).catch(function (e) { hint('载入失败: ' + e.message); });
+    // paneLoad 会同步写入 pane.period, 不必等数据回来才切高亮
+    syncPeriodBar(pane);
+  }
+
+  function syncPeriodBar(pane) {
+    pane = pane || activePane();
+    var host = $('periodBar');
+    if (!host) return;
+    var period = pane ? pane.period : null;
+    var arr = host.querySelectorAll('button');
+    var activeBtn = null;
+    for (var i = 0; i < arr.length; i++) {
+      var on = parseInt(arr[i].dataset.period, 10) === period;
+      arr[i].classList.toggle('active', on);
+      arr[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) activeBtn = arr[i];
+    }
+    var multi = state.panes.length > 1 && !!pane;
+    host.title = multi
+      ? '周期：作用于窗格 ' + (pane.index + 1) + '（点图表切换窗格）'
+      : 'K 线周期';
+    var scope = $('periodScope');
+    if (scope) {
+      scope.hidden = !multi;
+      if (multi) scope.textContent = '窗格 ' + (pane.index + 1);
+    }
+    // 窄屏下周期条会横向滚动: 切换活动窗格或恢复靠后的周期时,
+    // 把当前高亮按钮滚回可视区, 否则顶栏看不出当前周期。
+    // 注意先更新「窗格 N」徽标再校正, 徽标出现会再压窄周期条。
+    if (activeBtn && host.scrollWidth > host.clientWidth) {
+      var hr = host.getBoundingClientRect();
+      var br = activeBtn.getBoundingClientRect();
+      if (br.left < hr.left) host.scrollLeft -= (hr.left - br.left) + 2;
+      else if (br.right > hr.right) host.scrollLeft += (br.right - hr.right) + 2;
+    }
   }
 
   function computeIndicators(pane) {
@@ -553,7 +581,6 @@
     }
     pane.cursor = idx;
     if (pane.book) pane.book.onCursorMove(prev, idx);   // 每个窗格自己的持仓/挂单都要结算
-    paneUpdateBadge(pane);
     paneUpdateLegendLast(pane);
   }
 
@@ -573,7 +600,6 @@
         paneApplyAll(pane, true);
         paneFocus(pane);
         if (pane.book) pane.book.onCursorMove(prev, -1);
-        paneUpdateBadge(pane);
         paneUpdateLegendLast(pane);
       }
       return;
@@ -623,6 +649,7 @@
     renderTradePanel();
     updateStatus();
     savePosition();
+    updateReplayBadge();
     if (atCutoffEnd()) stopPlay();
   }
 
@@ -662,10 +689,14 @@
     renderLegend(pane, b, prev);
   }
 
-  function paneUpdateBadge(pane) {
-    if (!pane.els.badge) return;
-    pane.els.badge.hidden = atCutoffEnd() ||
-      !(pane.bars.length && pane.cursor >= 0 && pane.cursor < pane.bars.length - 1);
+  /** 时间轴共享, 所以「回放中」是全局状态, 只挂在顶栏一个角标上 */
+  function updateReplayBadge() {
+    var badge = $('replayBadge');
+    if (!badge) return;
+    var wasHidden = badge.hidden;
+    badge.hidden = atCutoffEnd();
+    // 角标显隐会改变周期条可用宽度, 高亮周期可能被挤出可视区
+    if (wasHidden !== badge.hidden) syncPeriodBar(activePane());
   }
 
   /* ============================================================ 回放 */
@@ -906,6 +937,7 @@
     state.panes.forEach(function (p) {
       p.els.section.classList.toggle('active', p.index === state.activeIndex);
     });
+    syncPeriodBar(activePane());
   }
 
   function pickNewPeriod() {
@@ -995,12 +1027,14 @@
       var period = sym.periods.some(function (p) { return p.period === saved.period; })
         ? saved.period : pickDefaultPeriod(sym);
 
+      buildPeriodBar();
       var pane = createPane(0);
       state.panes.push(pane);
       paneLoad(pane, period).then(function () {
         restorePosition();
         updateStatus();
         setActivePanels();
+        syncPeriodBar(pane);
         saveSession();
       }).catch(function (e) { hint('载入失败: ' + e.message); });
     }).catch(function (e) { hint('载入目录失败: ' + e.message); });
@@ -1008,6 +1042,7 @@
 
   function reloadAll() {
     if (!state.panes.length) return;
+    buildPeriodBar();
     var chain = Promise.resolve();
     state.panes.forEach(function (p) {
       chain = chain.then(function () { return paneLoad(p, p.period); });
@@ -1017,6 +1052,7 @@
       syncPanes();
       updateStatus();
       renderTradePanel();
+      syncPeriodBar(activePane());
       saveSession();
     }).catch(function (e) { hint('重载失败: ' + e.message); });
   }
@@ -2149,6 +2185,8 @@
     syncHistoryButton();
     applySplit();
     ChartStyle.applyAll(state.panes);   // 先把已保存主题的 CSS 变量铺上, 图表创建时再套用
+    // 窗口变窄后周期条才溢出, 需要重新把活动周期滚进可视区
+    window.addEventListener('resize', function () { syncPeriodBar(activePane()); });
 
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideMenu(); });
     document.addEventListener('mousedown', function (e) {

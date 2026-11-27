@@ -59,6 +59,7 @@ const alignment = () => page.evaluate(() => {
 // ---- 1. 单窗格基线
 let s = await snap();
 check('初始只有 1 个窗格', (await page.locator('.pane').count()) === 1, `M${s.panes[0].period}`);
+check('初始视角无回放角标', await page.isHidden('#replayBadge'));
 
 // ---- 2. 两窗格 M5 + M1
 await page.click('#layoutSwitch button[data-layout="2"]');
@@ -249,6 +250,137 @@ await page.click('#layoutSwitch button[data-layout="1"]');
 await page.waitForTimeout(500);
 check('单窗格隐藏方向切换和分隔线',
   !(await page.isVisible('#splitSwitch')) && !(await page.isVisible('#paneResizer')));
+
+// ---- 8. 顶栏统一周期条 + 窄屏可用性
+check('周期条位于顶栏', await page.evaluate(() => !!document.querySelector('.topbar #periodBar')));
+check('窗格内不再有独立周期 header', (await page.locator('.pane-head').count()) === 0);
+
+await page.setViewportSize({ width: 900, height: 800 });
+await page.click('#layoutSwitch button[data-layout="2"]');
+await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0, { timeout: 20000 });
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.panes[1].cursor - 50));
+await page.waitForFunction(() => !document.getElementById('replayBadge').hidden, { timeout: 5000 });
+await page.waitForTimeout(400);
+
+const measureTopbar = () => page.evaluate(() => {
+  const bar = document.querySelector('.topbar');
+  const period = document.getElementById('periodBar');
+  const ids = ['btnChartSettings', 'btnIndicators', 'btnDrawMenu', 'btnTradePanel'];
+  return {
+    badgeVisible: !document.getElementById('replayBadge').hidden,
+    topbarFits: bar.scrollWidth <= bar.clientWidth + 1,
+    actionsInView: ids.every(function (id) {
+      const r = document.getElementById(id).getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth;
+    }),
+    periodScrolls: period.scrollWidth > period.clientWidth
+  };
+});
+
+const narrow = await measureTopbar();
+check('900px 回放角标可见', narrow.badgeVisible);
+check('900px 双窗格顶栏不横向溢出', narrow.topbarFits);
+check('900px 下右侧操作按钮仍在视口内', narrow.actionsInView);
+check('900px 下周期条自身可横向滚动', narrow.periodScrolls);
+
+await page.setViewportSize({ width: 800, height: 800 });
+await page.waitForTimeout(400);
+const narrow800 = await measureTopbar();
+check('800px 回放角标可见时顶栏不横向溢出', narrow800.topbarFits);
+check('800px 下右侧操作按钮仍在视口内', narrow800.actionsInView);
+
+const beforeNarrowPeriod = await page.evaluate(() => window.KR.state.panes[window.KR.state.activeIndex].period);
+check('窄屏点击前活动窗格不是 H1', beforeNarrowPeriod !== 60);
+await page.click('#periodBar button[data-period="60"]');
+await page.waitForFunction(() => window.KR.state.panes[window.KR.state.activeIndex].period === 60, { timeout: 15000 });
+await page.waitForTimeout(600);
+check('窄屏滚动周期条后仍能切周期', await page.evaluate(() => {
+  const pane = window.KR.state.panes[window.KR.state.activeIndex];
+  const btn = document.querySelector('#periodBar button.active');
+  return pane.period === 60 && !!btn && btn.dataset.period === '60';
+}));
+
+// 切到靠右的 H4，强制把周期条滚回开头，再切换活动窗格：
+// syncPeriodBar 应把当前高亮按钮重新滚进可视区。
+await page.setViewportSize({ width: 900, height: 800 });
+await page.waitForTimeout(300);
+await page.click('#periodBar button[data-period="240"]');
+await page.waitForFunction(() => window.KR.state.panes[0].period === 240, { timeout: 15000 });
+await page.waitForTimeout(600);
+await page.evaluate(() => { document.getElementById('periodBar').scrollLeft = 0; });
+const paneCenters = await page.evaluate(() => window.KR.state.panes.map(function (p) {
+  const r = p.els.wrap.getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+}));
+await page.mouse.click(paneCenters[1].x, paneCenters[1].y);
+await page.waitForTimeout(200);
+await page.mouse.click(paneCenters[0].x, paneCenters[0].y);
+await page.waitForTimeout(300);
+const activePeriodVisible = () => page.evaluate(() => {
+  const host = document.getElementById('periodBar');
+  const btn = host.querySelector('button.active');
+  const hr = host.getBoundingClientRect();
+  const br = btn.getBoundingClientRect();
+  return hr.left <= br.left + 1 && br.right <= hr.right + 1;
+});
+check('窄屏切换活动窗格后高亮周期自动可见', await activePeriodVisible());
+
+// 角标显隐会改变周期条宽度, 进入/退出回放后高亮周期仍应可见
+await page.click('#btnEnd');
+await page.waitForFunction(() => document.getElementById('replayBadge').hidden, { timeout: 5000 });
+await page.waitForTimeout(300);
+await page.click('#btnPrev');
+await page.waitForFunction(() => !document.getElementById('replayBadge').hidden, { timeout: 5000 });
+await page.waitForTimeout(300);
+check('窄屏进入回放后高亮周期仍可见', await activePeriodVisible());
+
+// 宽屏下周期条不溢出, 缩窄后才会滚动; resize 也必须校正高亮位置
+await page.setViewportSize({ width: 1400, height: 800 });
+await page.waitForTimeout(300);
+await page.setViewportSize({ width: 900, height: 800 });
+await page.waitForTimeout(300);
+check('窄屏从宽屏缩回后高亮周期仍可见', await activePeriodVisible());
+
+// 回放中改变布局会加载新窗格, 收尾的 setCutoff 应把全局角标重新点亮
+await page.click('#layoutSwitch button[data-layout="1"]');
+await page.waitForTimeout(500);
+await page.click('#layoutSwitch button[data-layout="2"]');
+await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(600);
+check('回放中切布局后角标仍可见', !(await page.isHidden('#replayBadge')));
+
+await page.click('#btnDrawMenu');
+await page.waitForTimeout(200);
+const menu = await page.evaluate(() => {
+  const p = document.getElementById('drawPanel');
+  const r = p.getBoundingClientRect();
+  return { visible: !p.hidden, inView: r.top >= 0 && r.bottom <= innerHeight };
+});
+check('窄屏下画线菜单完整可见', menu.visible && menu.inView);
+await page.click('#btnDrawMenu');
+
+// ---- 9. 切换品种后周期按钮的可用状态跟着刷新
+await page.selectOption('#symbolSelect', 'BTCUSD');
+await page.waitForFunction(() => window.KR.state.symbol === 'BTCUSD' &&
+  window.KR.state.panes[0].period === 60 && window.KR.state.panes[0].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(500);
+const btcPeriods = await page.evaluate(() => ({
+  enabled: document.querySelectorAll('#periodBar button:not([disabled])').length,
+  disabled: document.querySelectorAll('#periodBar button[disabled]').length,
+  active: (document.querySelector('#periodBar button.active') || {}).textContent
+}));
+check('切到只有 H1 的 BTCUSD 后周期按钮置灰刷新',
+  btcPeriods.enabled === 1 && btcPeriods.disabled === 8 && btcPeriods.active === 'H1');
+
+await page.selectOption('#symbolSelect', 'XAUUSD');
+await page.waitForFunction(() => window.KR.state.symbol === 'XAUUSD' &&
+  window.KR.state.panes[0].bars.length > 0, { timeout: 20000 });
+await page.waitForTimeout(500);
+const xauPeriods = await page.evaluate(() => ({
+  disabled: document.querySelectorAll('#periodBar button[disabled]').length,
+  active: (document.querySelector('#periodBar button.active') || {}).textContent
+}));
+check('切回 XAUUSD 后可用周期恢复', xauPeriods.disabled === 2 && xauPeriods.active === 'H1');
 
 console.log('通过:');
 ok.forEach((s2) => console.log('  ✓ ' + s2));

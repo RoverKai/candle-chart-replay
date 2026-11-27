@@ -280,7 +280,11 @@
 
   function destroyPane(pane) {
     if (styleCtx && styleCtx.pane === pane) closeStylePanel();
-    if (levelCtx && levelCtx.pane === pane) closeLevelPanel();
+    if (levelCtx && levelCtx.pane === pane) {
+      closeLevelPanel();
+      // 关闭面板可能回滚拖动档位并触发防抖写盘; 销毁前必须同步刷一次, 否则撤销结果丢失
+      if (pane.tradesReady) saveTrades(pane, true);
+    }
     cancelTradeSave(pane);
     if (pane.resizeObserver) {
       pane.resizeObserver.disconnect();
@@ -1901,12 +1905,16 @@
     var prev = levelCtx.view || {};
     var next = levelSnapshot(p);
     ['sl', 'tp'].forEach(function (k) {
-      // 只刷新真正变化的那一侧, 保留另一侧尚未点“应用”的输入
-      if (prev[k] !== next[k] || prev[k + 'Lots'] !== next[k + 'Lots']) {
-        fillLevelPanelRow(levelCtx.pane, p, k);
-      } else {
-        syncLevelRowMeta(levelCtx.pane, p, k);
+      var priceChanged = prev[k] !== next[k];
+      var lotsChanged = prev[k + 'Lots'] !== next[k + 'Lots'];
+      // 按字段刷新: 手数被止损/止盈夹紧时不要覆盖用户刚输入但未应用的价格
+      if (priceChanged) {
+        levelPriceInput(k).value = next[k] != null ? next[k].toFixed(levelCtx.pane.digits) : '';
       }
+      if (lotsChanged) {
+        levelLotsInput(k).value = next[k] != null && next[k + 'Lots'] != null ? next[k + 'Lots'] : '';
+      }
+      syncLevelRowMeta(levelCtx.pane, p, k);
     });
     levelCtx.view = next;
   }

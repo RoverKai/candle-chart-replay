@@ -628,6 +628,40 @@ check('旧仓 0.025 手部分平仓后剩余不被放大',
   Math.abs(st.lots + legacyTrade2.lots - legacyPartial2.before) < 1e-9,
   JSON.stringify({ before: legacyPartial2.before, remaining: st.lots, closed: legacyTrade2 && legacyTrade2.lots }));
 
+/* ============================================================ 16. 回放夹紧另一侧手数时保留未保存价格输入 */
+const partialClamp = await page.evaluate(() => {
+  const b = window.KR.book;
+  b.clear();
+  window.KR.api.setCursor(14000);
+  b.open(1, { lots: 0.02, contract: 100 });
+  const p = b.position;
+  const close = b.currentClose();
+  b.setLevel(p.id, 'sl', close - 100, 0.02);
+  b.setLevel(p.id, 'tp', close + 1, 0.01);
+  window.KR.api.openLevel(p.id, 'sl');
+  return { sl: p.sl, tp: p.tp, newSl: close - 50 };
+});
+await page.waitForTimeout(350);
+await page.fill('#lpSlPrice', String(partialClamp.newSl));
+const clampIdx = await page.evaluate((tp) => {
+  const bars = window.KR.state.bars;
+  for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].high >= tp) return i;
+  return -1;
+}, partialClamp.tp);
+check('找到夹紧另一侧手数的触发 K 线', clampIdx > 0, String(clampIdx));
+if (clampIdx > 0) await page.evaluate((i) => window.KR.api.setCursor(i), clampIdx);
+await page.waitForTimeout(500);
+const afterClamp = await page.evaluate(() => ({
+  slPrice: document.getElementById('lpSlPrice').value,
+  slLots: document.getElementById('lpSlLots').value,
+  sl: window.KR.book.position ? window.KR.book.position.slLots : null
+}));
+check('回放夹紧止损手数时保留未保存的价格输入',
+  Number(afterClamp.slPrice) === Number(partialClamp.newSl.toFixed(2)),
+  JSON.stringify({ typed: partialClamp.newSl, after: afterClamp.slPrice }));
+check('回放夹紧止损手数时同步手数输入', afterClamp.slLots === '0.01', JSON.stringify(afterClamp));
+if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

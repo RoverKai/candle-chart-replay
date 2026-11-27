@@ -541,6 +541,280 @@ button.ghost.icon svg { display: block; }
 .tool-btn svg { width: 17px; height: 17px; display: block; }
 .tool-sep { width: 24px; height: 1px; background: var(--border); margin: 5px 0; }
 
+/* ------------------------------------------------------------ 悬浮绘图工具栏 */
+
+.float-tools {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 30;
+  height: 44px;
+  padding: 4px 5px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, 0) 38%), var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .5);
+  touch-action: none;
+  user-select: none;
+  cursor: default;
+}
+
+.float-tools[hidden] { display: none; }
+.float-tools.dragging { box-shadow: 0 16px 38px rgba(0, 0, 0, .62); }
+
+.ft-grip {
+  width: 16px;
+  height: 100%;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: #4d566b;
+  cursor: grab;
+  transition: color .12s, background .12s;
+}
+
+.ft-grip:hover { color: var(--muted); background: rgba(255, 255, 255, .04); }
+.ft-grip:active { cursor: grabbing; }
+.ft-grip svg { width: 14px; height: 14px; display: block; transform: rotate(90deg); }
+
+.ft-list {
+  width: auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+}
+
+.ft-btn {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  position: relative;
+  transition: background .12s, color .12s;
+}
+
+.ft-btn:hover { background: var(--panel-3); color: var(--text); }
+.ft-btn.active { background: var(--accent-soft); color: #7ea6ff; }
+.ft-btn.active::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.ft-btn svg { width: 18px; height: 18px; display: block; }
+
+.ft-sep {
+  width: 1px;
+  height: 24px;
+  flex: 0 0 auto;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.ft-empty {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px dashed #3a4459;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ft-empty:hover { border-color: var(--accent); color: var(--text); }
+
+.ft-foot {
+  width: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  margin-left: 2px;
+}
+
+.ft-act {
+  width: 22px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ft-act:hover,
+.ft-act.on { background: var(--panel-3); color: var(--text); }
+.ft-act.on { color: #7ea6ff; }
+#btnFloatClose:hover { color: var(--down); }
+
+.ft-btn:focus-visible,
+.ft-act:focus-visible,
+.ft-empty:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 设置弹层: 由 JS 按工具栏位置定位, 始终留在视口内 */
+.float-panel {
+  position: fixed;
+  z-index: 75;
+  width: 268px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .58);
+  color: var(--text);
+}
+
+.float-panel[hidden] { display: none; }
+
+.ftp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ftp-head span {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  color: #eef1f7;
+}
+
+.ftp-x {
+  margin-left: auto;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ftp-x:hover { color: var(--text); }
+
+.ftp-sub {
+  padding: 8px 2px 7px;
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.ftp-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 4px;
+}
+
+.ftp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ftp-row:hover { background: var(--panel-3); }
+.ftp-row input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ftp-ico {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+}
+
+.ftp-ico svg { width: 15px; height: 15px; display: block; }
+.ftp-row:hover .ftp-ico { color: var(--muted); }
+
+.ftp-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ftp-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.ftp-link {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.ftp-link:hover { background: var(--panel-3); color: var(--text); }
+
+.ftp-done {
+  margin-left: auto;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.ftp-done:hover { filter: brightness(1.12); }
+
+.ftp-row input:focus-visible,
+.ftp-link:focus-visible,
+.ftp-done:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .chart-wrap {
   position: relative;
   flex: 1 1 auto;
@@ -1317,6 +1591,7 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .chart-grid {
   --split-ratio: .5;
   --splitter-size: 8px;
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
@@ -1409,6 +1684,10 @@ body.resizing-row,
 body.resizing-row * { cursor: col-resize !important; }
 body.resizing-col,
 body.resizing-col * { cursor: row-resize !important; }
+
+/* 拖动悬浮工具栏时锁定光标和选区, 避免选中图表文字 */
+body.ft-dragging,
+body.ft-dragging * { cursor: grabbing !important; user-select: none !important; }
 
 .pane {
   display: flex;

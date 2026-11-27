@@ -14,6 +14,7 @@
   var state = null;         // { tools: [...], x: 0..1, y: 0..1, hidden: bool }
   var observer = null;
   var syncScheduled = false;
+  var dragging = false;
 
   /* ------------------------------------------------------------ 工具清单 */
 
@@ -85,7 +86,7 @@
   function layoutToolbar() {
     var grid = $('chartGrid');
     var box = $('floatTools');
-    if (!grid || !box || !state || box.hidden) return;
+    if (!grid || !box || !state || box.hidden || dragging) return;
     var w = box.offsetWidth;
     var h = box.offsetHeight;
     var maxLeft = Math.max(MARGIN, grid.clientWidth - w - MARGIN);
@@ -338,6 +339,7 @@
       };
       box.classList.add('dragging');
       document.body.classList.add('ft-dragging');
+      dragging = true;
       try { box.setPointerCapture(e.pointerId); } catch (err) { }
       e.preventDefault();
       e.stopPropagation();
@@ -355,10 +357,16 @@
 
     function finish(e) {
       if (!drag) return;
-      var left = parseFloat(box.style.left);
-      var top = parseFloat(box.style.top);
-      var xRange = drag.maxLeft - MARGIN;
-      var yRange = drag.maxTop - MARGIN;
+      dragging = false;
+      // 拖动过程中图表尺寸可能变化: 按当前容器重新夹取并换算比例, 避免保存旧尺寸下的坐标
+      var maxLeft = Math.max(MARGIN, grid.clientWidth - box.offsetWidth - MARGIN);
+      var maxTop = Math.max(MARGIN, grid.clientHeight - box.offsetHeight - MARGIN);
+      var left = Math.max(MARGIN, Math.min(maxLeft, parseFloat(box.style.left) || MARGIN));
+      var top = Math.max(MARGIN, Math.min(maxTop, parseFloat(box.style.top) || MARGIN));
+      box.style.left = Math.round(left) + 'px';
+      box.style.top = Math.round(top) + 'px';
+      var xRange = maxLeft - MARGIN;
+      var yRange = maxTop - MARGIN;
       state.x = xRange > 0 ? clamp01((left - MARGIN) / xRange) : 0;
       state.y = yRange > 0 ? clamp01((top - MARGIN) / yRange) : 0;
       saveState();

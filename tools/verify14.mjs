@@ -591,6 +591,43 @@ check('旧仓剩余不足最小手数时整笔平仓且不虚增',
   st.count === 0 && legacyTrade && legacyTrade.lots === legacyPartial.before,
   JSON.stringify({ before: legacyPartial.before, remaining: st.lots, closed: legacyTrade && legacyTrade.lots }));
 
+// 旧仓 0.025 手设 0.01 手止盈: 剩余 0.015 必须原样保留, 不能被四舍五入成 0.02
+const legacyPartial2 = await page.evaluate(() => {
+  const b = window.KR.book;
+  const bar = window.KR.state.bars[window.KR.state.cursor];
+  b.restore({
+    positions: [{
+      id: 'legacy-025', no: 1, dir: 1,
+      entryTime: bar.time, entryPrice: bar.close,
+      lots: 0.025, contract: 100, sl: null, tp: null
+    }],
+    activePosId: 'legacy-025',
+    nextNo: 2,
+    trades: [],
+    orders: []
+  });
+  const p = b.position;
+  const tp = b.currentClose() + 1;
+  b.setLevel(p.id, 'tp', tp, 0.01);
+  return { tp: tp, before: p.lots };
+});
+await page.waitForTimeout(350);
+const legacyIdx2 = await page.evaluate((tp) => {
+  const bars = window.KR.state.bars;
+  for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].high >= tp) return i;
+  return -1;
+}, legacyPartial2.tp);
+check('找到旧仓 0.025 手部分平仓 K 线', legacyIdx2 > 0, String(legacyIdx2));
+if (legacyIdx2 > 0) await page.evaluate((i) => window.KR.api.setCursor(i), legacyIdx2);
+await page.waitForTimeout(500);
+st = await bookState();
+const legacyTrade2 = st.trades[st.trades.length - 1];
+check('旧仓 0.025 手部分平仓后剩余不被放大',
+  st.count === 1 && Math.abs(st.lots - 0.015) < 1e-9 &&
+  legacyTrade2 && legacyTrade2.lots === 0.01 &&
+  Math.abs(st.lots + legacyTrade2.lots - legacyPartial2.before) < 1e-9,
+  JSON.stringify({ before: legacyPartial2.before, remaining: st.lots, closed: legacyTrade2 && legacyTrade2.lots }));
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

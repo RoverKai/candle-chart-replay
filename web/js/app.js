@@ -2113,6 +2113,9 @@
     var dg = pane.digits;
     var active = book.activePosition();
     var menu = $('ctxMenu');
+    // 菜单项回调里使用显式局部变量, 不依赖参数名在闭包中的可读性
+    var screenX = clientX;
+    var screenY = clientY;
     menu.innerHTML = '';
 
     var head = document.createElement('div');
@@ -2164,7 +2167,7 @@
     var lvKey = lvKind;
     if (lvPos && lvKey) {
       ctxAdd(menu, 'flat', (lvKey === 'sl' ? '止损设置…' : '止盈设置…'), '价格 / 手数', true, function () {
-        openLevelPanel(pane, lvPos.id, lvKey, clientX, clientY, false);
+        openLevelPanel(pane, lvPos.id, lvKey, screenX, screenY, false);
       });
       var lvPrice = lvKey === 'sl' ? lvPos.sl : lvPos.tp;
       if (lvPrice != null) {
@@ -2177,7 +2180,7 @@
       ctxSep(menu);
     } else if (lvPos && lvHit.kind === 'entry-line') {
       ctxAdd(menu, 'flat', '止损 / 止盈设置…', '拖动成本线自动识别', true, function () {
-        openLevelPanel(pane, lvPos.id, null, clientX, clientY, false);
+        openLevelPanel(pane, lvPos.id, null, screenX, screenY, false);
       });
       ctxSep(menu);
     }

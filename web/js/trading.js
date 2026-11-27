@@ -597,7 +597,7 @@
       this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind]);
       return;
     }
-    pos.lots = Math.round(rawRemaining * 100) / 100;
+    pos.lots = Math.round(rawRemaining * 1e6) / 1e6;
     if (kind === 'sl') {
       pos.sl = null;
       pos.slLots = null;

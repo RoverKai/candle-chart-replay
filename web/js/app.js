@@ -2067,7 +2067,8 @@
     var p = book ? book._posById(levelCtx.id) : null;
     if (!p) { closeLevelPanel(); return; }
     if (!book.clearLevel(levelCtx.id, kind, true)) return;
-    levelCtx.undo = null; // 用户显式清除, 关闭时保留清除结果
+    // 清除的正是拖动那一侧才丢弃撤销快照; 清除另一侧后关闭仍应撤销拖动
+    if (levelCtx.undo && levelCtx.undo.kind === kind) levelCtx.undo = null;
     book.onUpdate();
     levelPriceInput(kind).value = '';
     levelLotsInput(kind).value = '';

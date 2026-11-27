@@ -662,6 +662,26 @@ check('回放夹紧止损手数时保留未保存的价格输入',
 check('回放夹紧止损手数时同步手数输入', afterClamp.slLots === '0.01', JSON.stringify(afterClamp));
 if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
 
+/* ============================================================ 17. 清除另一侧后关闭仍撤销拖动 */
+await page.evaluate(() => {
+  const b = window.KR.book;
+  b.clear();
+  window.KR.api.setCursor(15000);
+  b.open(1, { lots: 0.1, contract: 100 });
+  const p = b.position;
+  b.setLevel(p.id, 'sl', b.currentClose() - 100, 0.02);
+});
+await page.waitForTimeout(450);
+st = await bookState();
+await dragTag(st.close + 35);
+await page.click('#lpSlClear');
+await page.waitForTimeout(300);
+await page.click('#lpClose');
+await page.waitForTimeout(400);
+st = await bookState();
+check('清除另一侧后关闭仍撤销拖动', st.tp == null && st.sl == null,
+  JSON.stringify({ tp: st.tp, sl: st.sl }));
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

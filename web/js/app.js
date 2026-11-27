@@ -1765,6 +1765,7 @@
 
     var s = book.stats();
     var statsBox = $('statsBlock');
+    statsBox.title = '分批止盈/止损每触发一次按一条平仓成交统计';
     if (s.count) {
       var pf = s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2);
       statsBox.innerHTML =

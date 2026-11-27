@@ -83,6 +83,7 @@
     this._levelHits = {};      // 活动持仓止盈/止损标签右侧的 × 取消按钮
     this._entries = {};        // 每条成本线的可拖动区域 (每帧绘制时更新)
     this._draft = null;        // 从成本线拖出的候选止盈/止损 { id, kind, price }
+    this._pendingLevel = null; // 拖动写入但面板还没确认的档位 { id, kind }, 暂不参与结算
     this._lastPointer = null;  // 最近的画布坐标, 松开后用来给设置面板定位
     this._slBtn = null;        // 活动持仓的按钮, 兼容旧调用方
     this._tpBtn = null;
@@ -205,6 +206,7 @@
   TradeBook.prototype.restoreLevel = function (id, kind, price, lots) {
     var p = this._posById(id);
     if (!p || (kind !== 'sl' && kind !== 'tp')) return false;
+    this.clearPendingLevel(id, kind);
     var lv = lots == null ? null : Math.min(roundLots(lots), p.lots);
     if (kind === 'sl') {
       p.sl = price != null ? price : null;
@@ -229,9 +231,27 @@
       p.tp = null;
       p.tpLots = null;
     }
+    this.clearPendingLevel(id, kind);
     this.onHint('已取消' + LEVEL_LABEL[kind] + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
     if (!silent) this.onUpdate();
     return true;
+  };
+
+  /** 拖动写入但面板尚未确认的档位: 结算时暂时跳过, 等应用/关闭后再解除 */
+  TradeBook.prototype.setPendingLevel = function (id, kind) {
+    this._pendingLevel = id != null ? { id: id, kind: kind } : null;
+  };
+
+  TradeBook.prototype.clearPendingLevel = function (id, kind) {
+    if (!this._pendingLevel) return;
+    if (id == null || this._pendingLevel.id === id && (!kind || this._pendingLevel.kind === kind)) {
+      this._pendingLevel = null;
+    }
+  };
+
+  TradeBook.prototype.hasPendingLevel = function (id, kind) {
+    return !!(this._pendingLevel && this._pendingLevel.id === id &&
+      (!kind || this._pendingLevel.kind === kind));
   };
 
   TradeBook.prototype.idxOfTime = function (time) {
@@ -478,6 +498,7 @@
     var i = this._posIndex(pos.id);
     if (i < 0) return null;
     this.positions.splice(i, 1);
+    this.clearPendingLevel(pos.id);
 
     var pnl = this._pnl(pos, exitPrice);
     var trade = {
@@ -550,7 +571,10 @@
   };
 
   TradeBook.prototype._checkBar = function (pos, bar) {
-    var sl = pos.sl, tp = pos.tp;
+    // 面板还没确认的拖动档位暂不结算, 否则关闭面板时已无法回滚
+    var pending = this._pendingLevel && this._pendingLevel.id === pos.id ? this._pendingLevel.kind : null;
+    var sl = pending === 'sl' ? null : pos.sl;
+    var tp = pending === 'tp' ? null : pos.tp;
     if (pos.dir === 1) {
       if (sl && bar.low <= sl) { this._exitAtLevel(pos, 'sl', bar.time, sl); return true; }
       if (tp && bar.high >= tp) { this._exitAtLevel(pos, 'tp', bar.time, tp); return true; }
@@ -1118,6 +1142,7 @@
         var prevLots = p[levelKey + 'Lots'];
         var res = this.setLevel(id, levelKey, draft.price, prevLots);
         if (res) {
+          this.setPendingLevel(id, levelKey);
           this.onHint((levelKey === 'sl' ? '已自动识别为止损' : '已自动识别为止盈') +
             ' ' + res.price.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
           // 关闭面板时若还没点应用, 用这个快照撤销这次拖动
@@ -1316,6 +1341,7 @@
     this._levelHits = {};
     this._entries = {};
     this._draft = null;
+    this._pendingLevel = null;
     this._lastPointer = null;
     this._slBtn = null;
     this._tpBtn = null;
@@ -1333,6 +1359,7 @@
     this._levelHits = {};
     this._entries = {};
     this._draft = null;
+    this._pendingLevel = null;
     this._dragMode = null;
     this.onUpdate();
   };

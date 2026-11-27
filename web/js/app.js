@@ -278,13 +278,17 @@
     return pane;
   }
 
+  /** 关闭某窗格的设置面板, 并把拖动撤销同步落盘 (供销毁/换周期前调用) */
+  function flushLevelPanelForPane(pane) {
+    if (!levelCtx || levelCtx.pane !== pane) return;
+    closeLevelPanel();
+    if (pane.tradesReady) writeTrades(pane);
+    cancelTradeSave(pane);
+  }
+
   function destroyPane(pane) {
     if (styleCtx && styleCtx.pane === pane) closeStylePanel();
-    if (levelCtx && levelCtx.pane === pane) {
-      closeLevelPanel();
-      // 关闭面板可能回滚拖动档位并触发防抖写盘; 销毁前直接同步写一次, 保证撤销结果落盘
-      if (pane.tradesReady) writeTrades(pane);
-    }
+    flushLevelPanelForPane(pane);
     cancelTradeSave(pane);
     if (pane.resizeObserver) {
       pane.resizeObserver.disconnect();
@@ -313,7 +317,8 @@
   /* ============================================================ 数据装载 */
 
   function paneLoad(pane, period) {
-    if (levelCtx && levelCtx.pane === pane) closeLevelPanel();
+    // 换周期前先回滚并同步落盘, 避免撤销写到新周期或被重新载入的旧存档覆盖
+    flushLevelPanelForPane(pane);
     pane.period = period;
     var url = '/api/bars?server=' + encodeURIComponent(state.serverId) +
       '&symbol=' + encodeURIComponent(state.symbol) + '&period=' + period;
@@ -1054,7 +1059,7 @@
 
   function reloadAll() {
     if (!state.panes.length) return;
-    closeLevelPanel();
+    if (levelCtx) flushLevelPanelForPane(levelCtx.pane);
     buildPeriodBar();
     var chain = Promise.resolve();
     state.panes.forEach(function (p) {
@@ -1926,11 +1931,10 @@
     if (pop) pop.hidden = true;
     if (!ctx || !ctx.undo) return;
     var book = ctx.pane.book;
-    var p = book ? book._posById(ctx.id) : null;
-    if (!p) return;
+    if (!book) return;
     var u = ctx.undo;
-    // 只在档位仍保持拖动后的值时回滚, 避免覆盖回放中已经触发/变化的仓位
-    if (p[u.kind] === u.nextPrice && p[u.kind + 'Lots'] === u.nextLots) {
+    // 只回滚仍是“待确认”的拖动档位; 已应用/已清除/已随仓位结算时不再动
+    if (book.hasPendingLevel(ctx.id, u.kind)) {
       book.restoreLevel(ctx.id, u.kind, u.prevPrice, u.prevLots);
     }
   }
@@ -2057,6 +2061,7 @@
       if (res) msgs.push(LEVEL_LABEL[op.kind] + ' ' + res.price.toFixed(dg) + ' · ' + fmtLots(res.lots) + ' 手');
     });
     book.onUpdate();      // 批量修改后统一刷新/落盘
+    book.clearPendingLevel(levelCtx.id);
     levelCtx.undo = null; // 已点应用, 关闭时不再撤销拖动
     hint(msgs.length ? msgs.join('；') : '没有修改');
     closeLevelPanel();

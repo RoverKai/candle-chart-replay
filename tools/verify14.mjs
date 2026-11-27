@@ -723,6 +723,34 @@ await page.waitForTimeout(400);
 st = await bookState();
 check('程序化重复打开面板不会丢失拖动撤销', st.tp == null, JSON.stringify({ tp: st.tp }));
 
+/* ============================================================ 19. 未应用拖动档位不提前参与结算 */
+await page.evaluate(() => {
+  const b = window.KR.book;
+  b.clear();
+  window.KR.api.setCursor(17000);
+  b.open(1, { lots: 0.1, contract: 100 });
+});
+await page.waitForTimeout(450);
+st = await bookState();
+await dragTag(st.close + 1);
+st = await bookState();
+const pendingTp = st.tp;
+const pendingIdx = await page.evaluate((tp) => {
+  const bars = window.KR.state.bars;
+  for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].high >= tp) return i;
+  return -1;
+}, pendingTp);
+check('找到未应用档位的触发 K 线', pendingIdx > 0, String(pendingIdx));
+if (pendingIdx > 0) await page.evaluate((i) => window.KR.api.setCursor(i), pendingIdx);
+await page.waitForTimeout(500);
+st = await bookState();
+check('未应用拖动档位不提前参与结算', st.count === 1 && st.tp === pendingTp,
+  JSON.stringify({ count: st.count, tp: st.tp, pendingTp: pendingTp }));
+await page.click('#lpApply');
+await page.waitForTimeout(400);
+st = await bookState();
+check('应用后待确认档位继续保留', st.tp === pendingTp, JSON.stringify({ tp: st.tp }));
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

@@ -149,6 +149,24 @@ await page.waitForTimeout(350);
 st = await bookState();
 check('止损手数可设为 0.03', st.slLots === 0.03, JSON.stringify({ sl: st.sl, slLots: st.slLots }));
 
+// 单击药丸时 1px 抖动不应改写档位，只应打开面板
+const beforeJitter = st;
+const jitterPill = await page.evaluate(() => {
+  const b = window.KR.book;
+  return b._btns[b.position.id].sl;
+});
+await page.mouse.move(box.x + jitterPill.x + jitterPill.w / 2, box.y + jitterPill.y + jitterPill.h / 2);
+await page.mouse.down();
+await page.mouse.move(box.x + jitterPill.x + jitterPill.w / 2, box.y + jitterPill.y + jitterPill.h / 2 + 1);
+await page.mouse.up();
+await page.waitForTimeout(350);
+st = await bookState();
+check('单击止损药丸不会改写止损', st.sl === beforeJitter.sl,
+  JSON.stringify({ before: beforeJitter.sl, after: st.sl }));
+check('单击止损药丸仍打开设置面板', await page.locator('#levelPop').isVisible());
+await page.click('#lpClose');
+await page.waitForTimeout(200);
+
 /* ============================================================ 2. 点击线/标签打开面板、取消 */
 await clickPriceLine(st.tp);
 panel = await page.evaluate(() => ({
@@ -347,6 +365,32 @@ check('部分止损后仓位仍在', st.count === 1 && Math.abs(st.lots - 0.07) 
 check('部分止损只平 0.03 手', st.trades.length > 0 && st.trades[st.trades.length - 1].lots === 0.03 &&
   st.trades[st.trades.length - 1].reason === '止损', JSON.stringify(st.trades));
 check('触发后的止损被清除', st.sl == null && st.slLots == null, JSON.stringify({ sl: st.sl, slLots: st.slLots }));
+
+/* ============================================================ 9. 清除一侧不覆盖另一侧的未保存输入 */
+const preserveSetup = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  const c = b.currentClose();
+  b.setLevel(p.id, 'sl', c + 100, 0.02);
+  b.setLevel(p.id, 'tp', c - 100, 0.02);
+  window.KR.api.openLevel(p.id, 'tp');
+  return { sl: c + 100, tp: c - 100 };
+});
+await page.waitForTimeout(350);
+const editedTp = Number((preserveSetup.tp + 1).toFixed(2));
+await page.fill('#lpTpPrice', String(editedTp));
+await page.fill('#lpTpLots', '0.01');
+await page.click('#lpSlClear');
+await page.waitForTimeout(300);
+const preserved = await page.evaluate(() => ({
+  sl: window.KR.book.position.sl,
+  tpPrice: document.getElementById('lpTpPrice').value,
+  tpLots: document.getElementById('lpTpLots').value
+}));
+check('清除止损不覆盖另一侧未保存的价格', preserved.sl == null && Number(preserved.tpPrice) === editedTp,
+  JSON.stringify(preserved));
+check('清除止损不覆盖另一侧未保存的手数', preserved.tpLots === '0.01', JSON.stringify(preserved));
+await page.click('#lpClose');
 
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));

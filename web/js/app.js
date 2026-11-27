@@ -1865,8 +1865,19 @@
   }
 
   /** 面板需要跟着持仓状态刷新, 否则回放触发后点应用会把旧设置重新挂上 */
-  function levelPanelSig(p) {
-    return p.lots + '|' + p.sl + '|' + p.slLots + '|' + p.tp + '|' + p.tpLots;
+  function levelSnapshot(p) {
+    return {
+      lots: p.lots,
+      sl: p.sl, slLots: p.slLots,
+      tp: p.tp, tpLots: p.tpLots
+    };
+  }
+
+  function syncLevelRowMeta(pane, p, kind) {
+    var lotsEl = levelLotsInput(kind);
+    lotsEl.placeholder = '全部 ' + p.lots;
+    lotsEl.max = String(p.lots);
+    levelPriceInput(kind).step = String(1 / Math.pow(10, pane.digits));
   }
 
   function fillLevelPanelRow(pane, p, kind) {
@@ -1875,9 +1886,7 @@
     var lotsEl = levelLotsInput(kind);
     priceEl.value = has ? p[kind].toFixed(pane.digits) : '';
     lotsEl.value = has && p[kind + 'Lots'] != null ? p[kind + 'Lots'] : '';
-    lotsEl.placeholder = '全部 ' + p.lots;
-    lotsEl.max = String(p.lots);
-    priceEl.step = String(1 / Math.pow(10, pane.digits));
+    syncLevelRowMeta(pane, p, kind);
   }
 
   function syncLevelPanel() {
@@ -1886,11 +1895,18 @@
     var p = book ? book._posById(levelCtx.id) : null;
     if (!p) { closeLevelPanel(); return; }
     $('lpPos').textContent = levelPosText(levelCtx.pane, p);
-    var sig = levelPanelSig(p);
-    if (sig === levelCtx.sig) return;
-    levelCtx.sig = sig;
-    fillLevelPanelRow(levelCtx.pane, p, 'sl');
-    fillLevelPanelRow(levelCtx.pane, p, 'tp');
+
+    var prev = levelCtx.view || {};
+    var next = levelSnapshot(p);
+    ['sl', 'tp'].forEach(function (k) {
+      // 只刷新真正变化的那一侧, 保留另一侧尚未点“应用”的输入
+      if (prev[k] !== next[k] || prev[k + 'Lots'] !== next[k + 'Lots']) {
+        fillLevelPanelRow(levelCtx.pane, p, k);
+      } else {
+        syncLevelRowMeta(levelCtx.pane, p, k);
+      }
+    });
+    levelCtx.view = next;
   }
 
   function closeLevelPanel() {
@@ -1911,7 +1927,7 @@
     var pop = $('levelPop');
     if (!pop) return;
 
-    levelCtx = { pane: pane, id: id, sig: levelPanelSig(p) };
+    levelCtx = { pane: pane, id: id, view: levelSnapshot(p) };
     $('lpPos').textContent = levelPosText(pane, p);
 
     ['sl', 'tp'].forEach(function (k) {

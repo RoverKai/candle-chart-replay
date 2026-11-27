@@ -1026,6 +1026,10 @@
       return;
     }
 
+    // 单击（含 1~2px 抖动）走 dragEnd 打开设置面板, 不能在这里改写档位。
+    // 只有纵向真正拖动后才写; 旧测试直接构造没有 startY 的 _dragMode 时保持旧行为。
+    if (typeof mode === 'object' && mode.startY != null && !mode.moved) return;
+
     if (kind === 'sl-button' || kind === 'sl-line') {
       p.sl = this._roundPrice(this._clampStop(price, p.dir));
     } else {

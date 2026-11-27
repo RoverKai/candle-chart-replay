@@ -953,6 +953,14 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .tp-grid input:focus { border-color: var(--accent); }
 .tp-grid input::placeholder { color: #4a5364; }
 
+.oco-row {
+  padding: 3px 2px;
+  margin-top: 2px;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .pos-row {
   display: flex;
   align-items: baseline;
@@ -972,6 +980,31 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   margin-bottom: 8px;
 }
 
+.pos-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.pos-title em {
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.pos-mix {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+
 .pos-tag {
   font-size: 11px;
   padding: 2px 8px;
@@ -987,6 +1020,66 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .pos-pnl.up { color: var(--up); }
 .pos-pnl.down { color: var(--down); }
 
+/* 多笔持仓列表: 每单一行, 点击选中, 行内 × 平掉这一单 */
+.pos-item {
+  padding: 7px 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: #131722;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-item:hover { border-color: #33405a; background: #171c27; }
+.pos-item.active { border-color: var(--accent); background: rgba(41, 98, 255, .09); }
+
+.pos-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pos-line .pos-tag { flex: 0 0 auto; }
+
+.pos-fl {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-fl.up { color: var(--up); }
+.pos-fl.down { color: var(--down); }
+
+.pos-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+.pos-close:hover { color: var(--down); background: var(--panel-3); }
+
+.pos-item .pos-row {
+  padding: 1px 0;
+  font-size: 11px;
+}
+
+.pos-item .pos-row .k { font-size: 10.5px; }
+.pos-item .pos-row .sl { color: #ff8a87; }
+.pos-item .pos-row .tp { color: #4fd8c6; }
+
+.pos-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+
 .btn-close-pos {
   width: 100%;
   margin-top: 9px;
@@ -1000,6 +1093,25 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 }
 
 .btn-close-pos:hover { background: #2c3446; }
+
+.pos-actions .btn-close-pos {
+  flex: 1;
+  width: auto;
+  margin-top: 0;
+}
+
+.btn-close-all {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 83, 80, .45);
+  background: rgba(239, 83, 80, .12);
+  color: #ff8a87;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.btn-close-all:hover { background: rgba(239, 83, 80, .22); }
 
 .stat-grid {
   display: grid;

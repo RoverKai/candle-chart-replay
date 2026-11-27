@@ -590,13 +590,14 @@
       pnl: this._pnl(pos, exitPrice, lots)
     };
 
-    var remaining = Math.round((pos.lots - lots) * 100) / 100;
-    if (remaining < 0.01 - 1e-9) {
+    // 用未取整的差值判断: 0.015 手持仓平 0.01 后只剩 0.005, 必须整笔平掉
+    var rawRemaining = pos.lots - lots;
+    if (rawRemaining < 0.01 - 1e-9) {
       // 剩余不足最小手数: 整笔平掉, 避免 0.01 下限把仓位凭空补大
       this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind]);
       return;
     }
-    pos.lots = remaining;
+    pos.lots = Math.round(rawRemaining * 100) / 100;
     if (kind === 'sl') {
       pos.sl = null;
       pos.slLots = null;

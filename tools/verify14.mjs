@@ -344,6 +344,16 @@ await page.waitForTimeout(300);
 const menuText = await page.textContent('#ctxMenu');
 check('右键止盈线出现设置入口', menuText.includes('止盈设置'), menuText.slice(0, 120));
 check('右键止盈线出现取消入口', menuText.includes('取消止盈'));
+const errBeforeMenuSetting = errors.length;
+const settingItem = page.locator('#ctxMenu .ctx-item', { hasText: '止盈设置' });
+if (await settingItem.count()) await settingItem.click();
+await page.waitForTimeout(350);
+check('右键止盈设置菜单可打开面板', await page.locator('#levelPop').isVisible());
+check('右键止盈设置菜单不报错', errors.length === errBeforeMenuSetting, errors.slice(errBeforeMenuSetting).join(' | '));
+if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
+await page.waitForTimeout(200);
+await page.mouse.click(box.x + 500, box.y + tpY, { button: 'right' });
+await page.waitForTimeout(300);
 const cancelItem = page.locator('#ctxMenu .ctx-item', { hasText: '取消止盈' });
 if (await cancelItem.count()) await cancelItem.click();
 await page.waitForTimeout(400);
@@ -557,6 +567,29 @@ const legacyLots = await page.evaluate(() => {
   return { lots: b.position.lots };
 });
 check('旧存档 0.015 手不会被迁移放大', legacyLots.lots === 0.015, JSON.stringify(legacyLots));
+
+// 旧仓 0.015 手设 0.01 手止盈: 剩余不足最小手数, 应整笔平掉而不是虚增成 0.01
+const legacyPartial = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  const tp = b.currentClose() + 1;
+  b.setLevel(p.id, 'tp', tp, 0.01);
+  return { tp: tp, before: p.lots };
+});
+await page.waitForTimeout(350);
+const legacyIdx = await page.evaluate((tp) => {
+  const bars = window.KR.state.bars;
+  for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].high >= tp) return i;
+  return -1;
+}, legacyPartial.tp);
+check('找到旧仓部分平仓 K 线', legacyIdx > 0, String(legacyIdx));
+if (legacyIdx > 0) await page.evaluate((i) => window.KR.api.setCursor(i), legacyIdx);
+await page.waitForTimeout(500);
+st = await bookState();
+const legacyTrade = st.trades[st.trades.length - 1];
+check('旧仓剩余不足最小手数时整笔平仓且不虚增',
+  st.count === 0 && legacyTrade && legacyTrade.lots === legacyPartial.before,
+  JSON.stringify({ before: legacyPartial.before, remaining: st.lots, closed: legacyTrade && legacyTrade.lots }));
 
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));

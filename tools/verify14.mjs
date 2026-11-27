@@ -538,6 +538,30 @@ st = await bookState();
 check('取消按钮上轻微移动不报错', errors.length === errBeforeX, errors.slice(errBeforeX).join(' | '));
 check('取消按钮仍能取消止损', st.sl == null, JSON.stringify({ sl: st.sl }));
 check('取消止损不会误写止盈', st.tp === xHit.tp, JSON.stringify({ before: xHit.tp, after: st.tp }));
+
+// 在 × 上按下后拖开再松手: 不应取消
+const dragAway = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  b.setLevel(p.id, 'sl', b.currentClose() - 50, 0.02);
+  return { sl: p.sl };
+});
+await page.waitForTimeout(400);
+const dragAwayHit = await page.evaluate(() => {
+  const b = window.KR.book;
+  return b._levelHits[b.position.id + ':sl'];
+});
+const errBeforeAway = errors.length;
+await page.mouse.move(box.x + dragAwayHit.x + 8, box.y + dragAwayHit.y + 8);
+await page.mouse.down();
+await page.mouse.move(box.x + dragAwayHit.x + 18, box.y + dragAwayHit.y + 18);
+await page.mouse.up();
+await page.waitForTimeout(300);
+st = await bookState();
+check('取消按钮拖动离开不报错', errors.length === errBeforeAway, errors.slice(errBeforeAway).join(' | '));
+check('取消按钮拖动离开不会取消止损', st.sl === dragAway.sl,
+  JSON.stringify({ before: dragAway.sl, after: st.sl }));
+
 const unknownKind = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
@@ -681,6 +705,23 @@ await page.waitForTimeout(400);
 st = await bookState();
 check('清除另一侧后关闭仍撤销拖动', st.tp == null && st.sl == null,
   JSON.stringify({ tp: st.tp, sl: st.sl }));
+
+/* ============================================================ 18. 程序化重复打开面板不丢失拖动撤销 */
+await page.evaluate(() => {
+  const b = window.KR.book;
+  b.clear();
+  window.KR.api.setCursor(16000);
+  b.open(1, { lots: 0.1, contract: 100 });
+});
+await page.waitForTimeout(450);
+st = await bookState();
+await dragTag(st.close + 35);
+await page.evaluate(() => window.KR.api.openLevel(window.KR.book.position.id, null));
+await page.waitForTimeout(350);
+await page.click('#lpClose');
+await page.waitForTimeout(400);
+st = await bookState();
+check('程序化重复打开面板不会丢失拖动撤销', st.tp == null, JSON.stringify({ tp: st.tp }));
 
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));

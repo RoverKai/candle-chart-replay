@@ -988,9 +988,11 @@
     this._lastPointer = { x: x, y: y };
     var hit = this.hitTestEx(x, y);
     if (hit && (hit.kind === 'sl-remove' || hit.kind === 'tp-remove')) {
-      // 点标签右侧的 × 直接取消, 不进入拖拽
-      this._dragMode = null;
-      this.clearLevel(hit.id, hit.kind === 'sl-remove' ? 'sl' : 'tp');
+      // × 在松手且没有明显拖动时才真正取消, 避免按下后发现点错却无法反悔
+      this._dragMode = {
+        kind: 'remove', id: hit.id, levelKind: hit.kind === 'sl-remove' ? 'sl' : 'tp',
+        startX: x, startY: y, moved: false
+      };
       return;
     }
 
@@ -1036,6 +1038,13 @@
     var mode = this._dragMode;
     if (!mode || !this.getPriceAt) return;
     var kind = typeof mode === 'string' ? mode : mode.kind;
+    if (kind === 'remove') {
+      this._lastPointer = { x: x, y: y };
+      if (typeof mode === 'object') {
+        mode.moved = Math.abs(x - mode.startX) > 2 || Math.abs(y - mode.startY) > 2;
+      }
+      return;
+    }
     // 白名单: 取消按钮等命中不会进入拖拽; 未知 kind 也不能落进下面的止盈分支
     if (!DRAG_KIND[kind]) return;
     var id = typeof mode === 'string' ? this.activePosId : mode.id;
@@ -1094,6 +1103,10 @@
     var at = this._lastPointer || { x: 0, y: 0 };
     var p = this._posById(id);
     if (!p) { this._draft = null; return; }
+    if (kind === 'remove') {
+      if (typeof mode === 'object' && !mode.moved) this.clearLevel(id, mode.levelKind);
+      return;
+    }
     if (!DRAG_KIND[kind]) { this._draft = null; return; }
 
     if (kind === 'entry-line') {

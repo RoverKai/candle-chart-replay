@@ -282,8 +282,8 @@
     if (styleCtx && styleCtx.pane === pane) closeStylePanel();
     if (levelCtx && levelCtx.pane === pane) {
       closeLevelPanel();
-      // 关闭面板可能回滚拖动档位并触发防抖写盘; 销毁前必须同步刷一次, 否则撤销结果丢失
-      if (pane.tradesReady) saveTrades(pane, true);
+      // 关闭面板可能回滚拖动档位并触发防抖写盘; 销毁前直接同步写一次, 保证撤销结果落盘
+      if (pane.tradesReady) writeTrades(pane);
     }
     cancelTradeSave(pane);
     if (pane.resizeObserver) {
@@ -1942,6 +1942,8 @@
    */
   function openLevelPanel(pane, id, kind, clientX, clientY, auto, undo) {
     if (!pane || !pane.book) return;
+    // 先消费已有面板的 undo 快照, 避免程序化重复打开时静默丢掉拖动撤销
+    if (levelCtx) closeLevelPanel();
     if (state.activeIndex !== pane.index) setActive(pane.index);
     var p = pane.book._posById(id);
     if (!p) return;

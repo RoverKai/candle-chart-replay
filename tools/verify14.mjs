@@ -751,6 +751,31 @@ await page.waitForTimeout(400);
 st = await bookState();
 check('应用后待确认档位继续保留', st.tp === pendingTp, JSON.stringify({ tp: st.tp }));
 
+/* ============================================================ 20. 拖出后拖回原点恢复原档位 */
+await page.evaluate(() => {
+  const b = window.KR.book;
+  b.clear();
+  window.KR.api.setCursor(18000);
+  b.open(1, { lots: 0.1, contract: 100 });
+});
+await page.waitForTimeout(450);
+const revertPill = await page.evaluate(() => {
+  const b = window.KR.book;
+  return b._btns[b.position.id].tp;
+});
+const revertX = box.x + revertPill.x + revertPill.w / 2;
+const revertY = box.y + revertPill.y + revertPill.h / 2;
+await page.mouse.move(revertX, revertY);
+await page.mouse.down();
+await page.mouse.move(revertX, revertY - 40, { steps: 8 });
+await page.mouse.move(revertX, revertY, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+st = await bookState();
+check('拖出后拖回原点恢复原档位', st.tp == null, JSON.stringify({ tp: st.tp }));
+check('拖回原点仍按单击打开设置面板', await page.locator('#levelPop').isVisible());
+if (await page.locator('#levelPop').isVisible()) await page.click('#lpClose');
+
 console.log('通过:');
 ok.forEach((s) => console.log('  ✓ ' + s));
 if (bad.length) { console.log('失败:'); bad.forEach((s) => console.log('  ✗ ' + s)); }

@@ -1021,9 +1021,19 @@
     }
 
     this._dragMode = hit
-      ? { kind: hit.kind, id: hit.id, startX: x, startY: y, moved: false }
+      ? { kind: hit.kind, id: hit.id, startX: x, startY: y, moved: false, everMoved: false }
       : null;
     if (!hit) return;
+
+    if (hit.kind === 'sl-button' || hit.kind === 'sl-line' ||
+        hit.kind === 'tp-button' || hit.kind === 'tp-line') {
+      var lp = this._posById(hit.id);
+      if (lp) {
+        var lk = (hit.kind === 'sl-button' || hit.kind === 'sl-line') ? 'sl' : 'tp';
+        this._dragMode.prevPrice = lp[lk];
+        this._dragMode.prevLots = lp[lk + 'Lots'];
+      }
+    }
 
     if (hit.kind === 'entry-line') {
       var p = this._posById(hit.id);
@@ -1081,7 +1091,9 @@
     this._lastPointer = { x: x, y: y };
     if (typeof mode === 'object') {
       // 这些控件都是上下拖的; 只有纵向位移才算真正拖动, 横向划过标签仍按单击处理
-      mode.moved = Math.abs(y - mode.startY) > 2;
+      var movedNow = Math.abs(y - mode.startY) > 2;
+      mode.moved = movedNow;
+      if (movedNow) mode.everMoved = true;
     }
 
     if (kind === 'entry-line') {
@@ -1163,7 +1175,10 @@
 
     var levelKind = (kind === 'sl-button' || kind === 'sl-line') ? 'sl' : 'tp';
     if (typeof mode === 'object' && !mode.moved) {
-      // 单击（没有拖动）止盈/止损线或按钮: 打开设置面板
+      // 拖动后又拖回原点: 恢复拖动前的档位, 再按单击打开面板
+      if (mode.everMoved && mode.prevPrice !== undefined) {
+        this.restoreLevel(id, levelKind, mode.prevPrice, mode.prevLots);
+      }
       this.onEditLevel(id, levelKind, at.x, at.y, false);
       return;
     }

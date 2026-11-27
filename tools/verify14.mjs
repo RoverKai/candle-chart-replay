@@ -89,6 +89,23 @@ check('开多仓成功', st.count === 1, JSON.stringify({ entry: st.entry, close
 const firstEntry = st.entry;
 const firstId = await page.evaluate(() => window.KR.book.position.id);
 
+// 未设置止损时右键灰色 SL 药丸：不应崩溃，也不应出现“取消止损”
+const grayPill = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  return b._btns[p.id].sl;
+});
+const errBeforeGray = errors.length;
+await page.mouse.click(box.x + grayPill.x + grayPill.w / 2, box.y + grayPill.y + grayPill.h / 2, { button: 'right' });
+await page.waitForTimeout(300);
+const grayMenu = await page.textContent('#ctxMenu');
+check('右键未设置止损的药丸不报错', errors.length === errBeforeGray, errors.slice(errBeforeGray).join(' | '));
+check('右键未设置止损的药丸仍有设置入口', grayMenu.includes('止损设置'), grayMenu.slice(0, 120));
+check('右键未设置止损的药丸后菜单继续渲染', grayMenu.includes('图表设置'), grayMenu.slice(0, 160));
+check('未设置止损时不出现取消止损', !grayMenu.includes('取消止损'), grayMenu.slice(0, 160));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
 await dragTag(st.close + 40);
 let panel = await page.evaluate(() => ({
   hidden: document.getElementById('levelPop').hidden,
@@ -191,6 +208,17 @@ const partial = await page.evaluate(() => {
   return { tp, lotsBefore: p.lots };
 });
 await page.waitForTimeout(350);
+// 打开面板后继续推进回放：触发止盈时面板必须同步清空，应用旧值不能把止盈重新挂上
+await page.evaluate(() => window.KR.api.openLevel(window.KR.book.position.id, 'tp'));
+await page.waitForTimeout(350);
+const panelBeforeHit = await page.evaluate(() => ({
+  hidden: document.getElementById('levelPop').hidden,
+  tpPrice: document.getElementById('lpTpPrice').value,
+  tpLots: document.getElementById('lpTpLots').value
+}));
+check('回放前设置面板显示止盈', panelBeforeHit.hidden === false &&
+  Number(panelBeforeHit.tpPrice) === Number(partial.tp.toFixed(2)),
+  JSON.stringify(panelBeforeHit));
 const hitIdx = await page.evaluate((tp) => {
   const bars = window.KR.state.bars;
   for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].high >= tp) return i;
@@ -199,6 +227,14 @@ const hitIdx = await page.evaluate((tp) => {
 check('找到触发部分止盈的未来 K 线', hitIdx > 0, String(hitIdx));
 if (hitIdx > 0) await page.evaluate((i) => window.KR.api.setCursor(i), hitIdx);
 await page.waitForTimeout(500);
+const panelAfterHit = await page.evaluate(() => ({
+  hidden: document.getElementById('levelPop').hidden,
+  tpPrice: document.getElementById('lpTpPrice').value,
+  tpLots: document.getElementById('lpTpLots').value
+}));
+check('回放触发后面板仍打开', panelAfterHit.hidden === false, JSON.stringify(panelAfterHit));
+check('回放触发后止盈输入已清空', panelAfterHit.tpPrice === '' && panelAfterHit.tpLots === '',
+  JSON.stringify(panelAfterHit));
 st = await bookState();
 check('部分止盈后仓位仍在', st.count === 1 && Math.abs(st.lots - 0.06) < 1e-9,
   JSON.stringify({ count: st.count, lots: st.lots, before: partial.lotsBefore }));
@@ -206,6 +242,12 @@ check('部分止盈只平 0.04 手', st.trades.length === 1 && st.trades[0].lots
   JSON.stringify(st.trades));
 check('触发后的止盈被清除', st.tp == null && st.tpLots == null, JSON.stringify({ tp: st.tp, tpLots: st.tpLots }));
 check('剩余止损不受影响', st.sl != null && st.slLots === 0.02, JSON.stringify({ sl: st.sl, slLots: st.slLots }));
+
+await page.click('#lpApply');
+await page.waitForTimeout(350);
+st = await bookState();
+check('应用过期设置不会重建已触发的止盈', st.tp == null && st.tpLots == null,
+  JSON.stringify({ tp: st.tp, tpLots: st.tpLots }));
 
 /* ============================================================ 4. 持久化 */
 await page.waitForTimeout(700);

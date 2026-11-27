@@ -1864,12 +1864,33 @@
       p.entryPrice.toFixed(pane.digits);
   }
 
+  /** 面板需要跟着持仓状态刷新, 否则回放触发后点应用会把旧设置重新挂上 */
+  function levelPanelSig(p) {
+    return p.lots + '|' + p.sl + '|' + p.slLots + '|' + p.tp + '|' + p.tpLots;
+  }
+
+  function fillLevelPanelRow(pane, p, kind) {
+    var has = p[kind] != null;
+    var priceEl = levelPriceInput(kind);
+    var lotsEl = levelLotsInput(kind);
+    priceEl.value = has ? p[kind].toFixed(pane.digits) : '';
+    lotsEl.value = has && p[kind + 'Lots'] != null ? p[kind + 'Lots'] : '';
+    lotsEl.placeholder = '全部 ' + p.lots;
+    lotsEl.max = String(p.lots);
+    priceEl.step = String(1 / Math.pow(10, pane.digits));
+  }
+
   function syncLevelPanel() {
     if (!levelCtx) return;
     var book = levelCtx.pane.book;
     var p = book ? book._posById(levelCtx.id) : null;
     if (!p) { closeLevelPanel(); return; }
     $('lpPos').textContent = levelPosText(levelCtx.pane, p);
+    var sig = levelPanelSig(p);
+    if (sig === levelCtx.sig) return;
+    levelCtx.sig = sig;
+    fillLevelPanelRow(levelCtx.pane, p, 'sl');
+    fillLevelPanelRow(levelCtx.pane, p, 'tp');
   }
 
   function closeLevelPanel() {
@@ -1887,22 +1908,14 @@
     if (state.activeIndex !== pane.index) setActive(pane.index);
     var p = pane.book._posById(id);
     if (!p) return;
-    var dg = pane.digits;
     var pop = $('levelPop');
     if (!pop) return;
 
-    levelCtx = { pane: pane, id: id };
+    levelCtx = { pane: pane, id: id, sig: levelPanelSig(p) };
     $('lpPos').textContent = levelPosText(pane, p);
 
     ['sl', 'tp'].forEach(function (k) {
-      var has = p[k] != null;
-      var priceEl = levelPriceInput(k);
-      var lotsEl = levelLotsInput(k);
-      priceEl.value = has ? p[k].toFixed(dg) : '';
-      lotsEl.value = has && p[k + 'Lots'] != null ? p[k + 'Lots'] : '';
-      lotsEl.placeholder = '全部 ' + p.lots;
-      lotsEl.max = String(p.lots);
-      priceEl.step = String(1 / Math.pow(10, dg));
+      fillLevelPanelRow(pane, p, k);
       levelRowEl(k).classList.toggle('focus', !!kind && kind === k);
     });
 
@@ -2104,11 +2117,14 @@
       ctxAdd(menu, 'flat', (lvKey === 'sl' ? '止损设置…' : '止盈设置…'), '价格 / 手数', true, function () {
         openLevelPanel(pane, lvPos.id, lvKey, clientX, clientY, false);
       });
-      ctxAdd(menu, 'danger', (lvKey === 'sl' ? '取消止损' : '取消止盈'),
-        lvKey === 'sl' ? lvPos.sl.toFixed(dg) : lvPos.tp.toFixed(dg), true, function () {
-          book.clearLevel(lvPos.id, lvKey);
-          if (pane.drawLayer) pane.drawLayer.requestRedraw();
-        });
+      var lvPrice = lvKey === 'sl' ? lvPos.sl : lvPos.tp;
+      if (lvPrice != null) {
+        ctxAdd(menu, 'danger', (lvKey === 'sl' ? '取消止损' : '取消止盈'),
+          lvPrice.toFixed(dg), true, function () {
+            book.clearLevel(lvPos.id, lvKey);
+            if (pane.drawLayer) pane.drawLayer.requestRedraw();
+          });
+      }
       ctxSep(menu);
     } else if (lvPos && lvHit.kind === 'entry-line') {
       ctxAdd(menu, 'flat', '止损 / 止盈设置…', '拖动成本线自动识别', true, function () {

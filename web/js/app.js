@@ -125,6 +125,7 @@
   }
 
   function money(v) { return (v >= 0 ? '+' : '') + v.toFixed(2); }
+  function fmtLots(v) { return parseFloat((Number(v) || 0).toFixed(2)); }
 
   function lastIndexAtOrBefore(bars, t) {
     var lo = 0, hi = bars.length - 1, ans = -1;
@@ -231,7 +232,11 @@
         saveTrades(pane);
         if (pane.drawLayer) pane.drawLayer.requestRedraw();
       },
-      onHint: hint
+      onHint: hint,
+      onEditLevel: function (id, kind, x, y, auto) {
+        var r = pane.els.wrap.getBoundingClientRect();
+        openLevelPanel(pane, id, kind, r.left + x, r.top + y, auto);
+      }
     });
 
     pane.drawLayer.setExtraPainter(function (ctx, layer) { pane.book.paint(ctx, layer); });
@@ -275,6 +280,7 @@
 
   function destroyPane(pane) {
     if (styleCtx && styleCtx.pane === pane) closeStylePanel();
+    if (levelCtx && levelCtx.pane === pane) closeLevelPanel();
     cancelTradeSave(pane);
     if (pane.resizeObserver) {
       pane.resizeObserver.disconnect();
@@ -288,6 +294,7 @@
   function setActive(index) {
     if (state.activeIndex === index) return;
     closeStylePanel();
+    closeLevelPanel();
     state.activeIndex = index;
     state.panes.forEach(function (p) {
       p.els.section.classList.toggle('active', p.index === index);
@@ -302,6 +309,7 @@
   /* ============================================================ 数据装载 */
 
   function paneLoad(pane, period) {
+    if (levelCtx && levelCtx.pane === pane) closeLevelPanel();
     pane.period = period;
     var url = '/api/bars?server=' + encodeURIComponent(state.serverId) +
       '&symbol=' + encodeURIComponent(state.symbol) + '&period=' + period;
@@ -1042,6 +1050,7 @@
 
   function reloadAll() {
     if (!state.panes.length) return;
+    closeLevelPanel();
     buildPeriodBar();
     var chain = Promise.resolve();
     state.panes.forEach(function (p) {
@@ -1416,11 +1425,15 @@
 
   var tradeSaveTimers = {};
   var tradeSigMap = {};
+  var levelCtx = null;        // { pane, id }: 正在编辑的持仓止盈/止损
+  var LEVEL_LABEL = { sl: '止损', tp: '止盈' };
 
   function tradeSig(pane) {
     var b = pane.book;
     if (!b) return '';
-    var posSig = b.positions.map(function (p) { return p.id + ':' + p.sl + ':' + p.tp; }).join(',');
+    var posSig = b.positions.map(function (p) {
+      return p.id + ':' + p.lots + ':' + p.sl + ':' + p.slLots + ':' + p.tp + ':' + p.tpLots;
+    }).join(',');
     return (b.activePosId || '-') + '|' + posSig + '|' + b.trades.length + '|' +
       (b.trades.length ? b.trades[b.trades.length - 1].id : '') + '|' +
       b.orders.map(function (o) { return o.id + ':' + (o.oco ? 1 : 0) + (o.ocoLegacy ? 'L' : ''); }).join(',');
@@ -1595,6 +1608,7 @@
 
   function openChartSettings() {
     closeStylePanel();
+    closeLevelPanel();
     hideMenu();
     $('indicatorPanel').hidden = true;
     $('drawPanel').hidden = true;
@@ -1634,6 +1648,7 @@
     var dg = pane.digits;
     var positions = book.positions;
     var active = book.activePosition();
+    if (levelCtx && levelCtx.pane === pane) syncLevelPanel();
 
     var bar = pane.bars[pane.cursor];
     $('btnBuy').disabled = !bar;
@@ -1657,6 +1672,12 @@
           var up = p.dir === 1;
           var fl = book.floatingOf(p);
           var isActive = active && active.id === p.id;
+          var slTxt = p.sl != null
+            ? p.sl.toFixed(dg) + ' · ' + fmtLots(book.levelLots(p, 'sl')) + '手'
+            : '—';
+          var tpTxt = p.tp != null
+            ? p.tp.toFixed(dg) + ' · ' + fmtLots(book.levelLots(p, 'tp')) + '手'
+            : '—';
           return '<div class="pos-item' + (isActive ? ' active' : '') + '" data-id="' + p.id + '" title="点击选中这一单">' +
             '<div class="pos-line">' +
               '<span class="pos-tag ' + (up ? 'long' : 'short') + '">#' + (p.no || i + 1) + ' ' + (up ? '多' : '空') + ' ' + p.lots + ' 手</span>' +
@@ -1665,13 +1686,16 @@
             '</div>' +
             '<div class="pos-row"><span class="k">开仓</span><span class="v">' + p.entryPrice.toFixed(dg) +
               ' · ' + fmtTime(p.entryTime).slice(5) + '</span></div>' +
-            ((p.sl != null || p.tp != null)
-              ? '<div class="pos-row"><span class="k">止损 / 止盈</span><span class="v">' +
-                  '<span class="sl">' + (p.sl != null ? p.sl.toFixed(dg) : '—') + '</span>' +
-                  ' / ' +
-                  '<span class="tp">' + (p.tp != null ? p.tp.toFixed(dg) : '—') + '</span>' +
-                '</span></div>'
-              : '') +
+            '<div class="pos-row pos-levels" title="点击设置止损价格和手数">' +
+              '<span class="k">止损 SL</span>' +
+              '<span class="v"><span class="sl">' + slTxt + '</span></span>' +
+              '<span class="pos-edit">设置</span>' +
+            '</div>' +
+            '<div class="pos-row pos-levels" title="点击设置止盈价格和手数">' +
+              '<span class="k">止盈 TP</span>' +
+              '<span class="v"><span class="tp">' + tpTxt + '</span></span>' +
+              '<span class="pos-edit">设置</span>' +
+            '</div>' +
             '</div>';
         }).join('') +
         '<div class="pos-actions">' +
@@ -1684,6 +1708,10 @@
         item.addEventListener('click', function (e) {
           if (e.target.closest('.pos-close')) return;
           if (!book.setActivePosition(item.dataset.id)) return;
+          if (e.target.closest('.pos-levels')) {
+            openLevelPanel(pane, item.dataset.id, null, e.clientX, e.clientY, false);
+            return;
+          }
           if (pane.drawLayer) pane.drawLayer.requestRedraw();
         });
       });
@@ -1825,6 +1853,158 @@
     if (pane.drawLayer) pane.drawLayer.requestRedraw();
   }
 
+  /* ============================================================ 止损 / 止盈设置弹层 */
+
+  function levelPriceInput(kind) { return $(kind === 'sl' ? 'lpSlPrice' : 'lpTpPrice'); }
+  function levelLotsInput(kind) { return $(kind === 'sl' ? 'lpSlLots' : 'lpTpLots'); }
+  function levelRowEl(kind) { return $(kind === 'sl' ? 'lpSlRow' : 'lpTpRow'); }
+
+  function levelPosText(pane, p) {
+    return '#' + (p.no || '') + ' ' + (p.dir === 1 ? '多' : '空') + ' ' + p.lots + ' 手 @ ' +
+      p.entryPrice.toFixed(pane.digits);
+  }
+
+  function syncLevelPanel() {
+    if (!levelCtx) return;
+    var book = levelCtx.pane.book;
+    var p = book ? book._posById(levelCtx.id) : null;
+    if (!p) { closeLevelPanel(); return; }
+    $('lpPos').textContent = levelPosText(levelCtx.pane, p);
+  }
+
+  function closeLevelPanel() {
+    levelCtx = null;
+    var pop = $('levelPop');
+    if (pop) pop.hidden = true;
+  }
+
+  /**
+   * 打开某笔持仓的止盈/止损设置。
+   * kind 从成本线拖动/点击止盈止损线时传入, 用于高亮自动识别的那一行。
+   */
+  function openLevelPanel(pane, id, kind, clientX, clientY, auto) {
+    if (!pane || !pane.book) return;
+    if (state.activeIndex !== pane.index) setActive(pane.index);
+    var p = pane.book._posById(id);
+    if (!p) return;
+    var dg = pane.digits;
+    var pop = $('levelPop');
+    if (!pop) return;
+
+    levelCtx = { pane: pane, id: id };
+    $('lpPos').textContent = levelPosText(pane, p);
+
+    ['sl', 'tp'].forEach(function (k) {
+      var has = p[k] != null;
+      var priceEl = levelPriceInput(k);
+      var lotsEl = levelLotsInput(k);
+      priceEl.value = has ? p[k].toFixed(dg) : '';
+      lotsEl.value = has && p[k + 'Lots'] != null ? p[k + 'Lots'] : '';
+      lotsEl.placeholder = '全部 ' + p.lots;
+      lotsEl.max = String(p.lots);
+      priceEl.step = String(1 / Math.pow(10, dg));
+      levelRowEl(k).classList.toggle('focus', !!kind && kind === k);
+    });
+
+    $('lpHint').textContent = auto && kind
+      ? '已自动识别为' + LEVEL_LABEL[kind] + '；设置手数后点「应用」。'
+      : '拖到现价盈利侧自动识别为止盈，亏损侧为止损；点标签右侧的 × 可直接取消。';
+
+    pop.hidden = false;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var ax = clientX == null ? window.innerWidth / 2 : clientX;
+    var ay = clientY == null ? window.innerHeight / 2 : clientY;
+    var left = ax + 18;
+    var top = ay - 28;
+    if (left + w > window.innerWidth - 8) left = ax - w - 18;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+    if (top + h > window.innerHeight - 8) top = ay - h - 18;
+    top = Math.max(8, Math.min(top, window.innerHeight - h - 8));
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+
+    if (auto && kind) {
+      setTimeout(function () {
+        if (!levelCtx || levelCtx.id !== id || levelCtx.pane !== pane) return;
+        var el = levelLotsInput(kind);
+        if (el) { el.focus(); el.select(); }
+      }, 0);
+    }
+  }
+
+  function applyLevelPanel() {
+    if (!levelCtx) return;
+    var pane = levelCtx.pane;
+    var book = pane.book;
+    var p = book ? book._posById(levelCtx.id) : null;
+    if (!p) { closeLevelPanel(); return; }
+    var dg = pane.digits;
+    var ops = [];
+    var bad = null;
+
+    ['sl', 'tp'].forEach(function (k) {
+      var priceEl = levelPriceInput(k);
+      var lotsEl = levelLotsInput(k);
+      var rawPrice = String(priceEl.value || '').trim();
+      var rawLots = String(lotsEl.value || '').trim();
+      if (!rawPrice) {
+        ops.push({ kind: k, clear: true });
+        return;
+      }
+      var price = parseFloat(rawPrice);
+      if (!isFinite(price) || price <= 0) {
+        bad = { kind: k, el: priceEl, msg: LEVEL_LABEL[k] + '价格格式不正确' };
+        return;
+      }
+      var lots = null;
+      if (rawLots) {
+        lots = parseFloat(rawLots);
+        if (!isFinite(lots) || lots <= 0) {
+          bad = { kind: k, el: lotsEl, msg: LEVEL_LABEL[k] + '手数需大于 0' };
+          return;
+        }
+      }
+      ops.push({ kind: k, clear: false, price: price, lots: lots });
+    });
+
+    if (bad) {
+      hint(bad.msg);
+      bad.el.focus();
+      return;
+    }
+
+    var msgs = [];
+    ops.forEach(function (op) {
+      if (op.clear) {
+        if (p[op.kind] != null && book.clearLevel(levelCtx.id, op.kind, true)) {
+          msgs.push('已取消' + LEVEL_LABEL[op.kind]);
+        }
+        return;
+      }
+      var res = book.setLevel(levelCtx.id, op.kind, op.price, op.lots);
+      if (res) msgs.push(LEVEL_LABEL[op.kind] + ' ' + res.price.toFixed(dg) + ' · ' + fmtLots(res.lots) + ' 手');
+    });
+    book.onUpdate();      // 批量修改后统一刷新/落盘
+    hint(msgs.length ? msgs.join('；') : '没有修改');
+    closeLevelPanel();
+  }
+
+  function clearLevelRow(kind) {
+    if (!levelCtx) return;
+    var pane = levelCtx.pane;
+    var book = pane.book;
+    var p = book ? book._posById(levelCtx.id) : null;
+    if (!p) { closeLevelPanel(); return; }
+    if (!book.clearLevel(levelCtx.id, kind, true)) return;
+    book.onUpdate();
+    levelPriceInput(kind).value = '';
+    levelLotsInput(kind).value = '';
+    levelRowEl(kind).classList.remove('focus');
+    hint('已取消' + LEVEL_LABEL[kind]);
+  }
+
   /* ============================================================ 右键菜单 */
 
   function hideMenu() {
@@ -1911,6 +2091,30 @@
       if (book.positions.length > 1) {
         ctxAdd(menu, 'danger', '全部平仓', book.positions.length + ' 单', true, doCloseAll);
       }
+    }
+
+    // 右键落在止损/止盈线或成本线上: 直接给出设置 / 取消入口
+    var lvHit = book.hitTestEx(localX, localY);
+    var lvKind = null;
+    if (lvHit && (lvHit.kind === 'sl-line' || lvHit.kind === 'sl-button' || lvHit.kind === 'sl-remove')) lvKind = 'sl';
+    else if (lvHit && (lvHit.kind === 'tp-line' || lvHit.kind === 'tp-button' || lvHit.kind === 'tp-remove')) lvKind = 'tp';
+    var lvPos = lvHit ? book.positions.filter(function (x) { return x.id === lvHit.id; })[0] : null;
+    var lvKey = lvKind;
+    if (lvPos && lvKey) {
+      ctxAdd(menu, 'flat', (lvKey === 'sl' ? '止损设置…' : '止盈设置…'), '价格 / 手数', true, function () {
+        openLevelPanel(pane, lvPos.id, lvKey, clientX, clientY, false);
+      });
+      ctxAdd(menu, 'danger', (lvKey === 'sl' ? '取消止损' : '取消止盈'),
+        lvKey === 'sl' ? lvPos.sl.toFixed(dg) : lvPos.tp.toFixed(dg), true, function () {
+          book.clearLevel(lvPos.id, lvKey);
+          if (pane.drawLayer) pane.drawLayer.requestRedraw();
+        });
+      ctxSep(menu);
+    } else if (lvPos && lvHit.kind === 'entry-line') {
+      ctxAdd(menu, 'flat', '止损 / 止盈设置…', '拖动成本线自动识别', true, function () {
+        openLevelPanel(pane, lvPos.id, null, clientX, clientY, false);
+      });
+      ctxSep(menu);
     }
 
     var near = null;
@@ -2071,6 +2275,7 @@
       setTimeout(resizeLayers, 40);
     });
     $('btnTradeClose').addEventListener('click', function () {
+      closeLevelPanel();
       $('tradePanel').hidden = true;
       $('btnTradePanel').classList.remove('on');
       setTimeout(resizeLayers, 40);
@@ -2078,6 +2283,17 @@
 
     $('btnBuy').addEventListener('click', function () { doTrade(1); });
     $('btnSell').addEventListener('click', function () { doTrade(-1); });
+
+    $('lpClose').addEventListener('click', closeLevelPanel);
+    $('lpApply').addEventListener('click', applyLevelPanel);
+    $('lpSlClear').addEventListener('click', function () { clearLevelRow('sl'); });
+    $('lpTpClear').addEventListener('click', function () { clearLevelRow('tp'); });
+    ['lpSlPrice', 'lpSlLots', 'lpTpPrice', 'lpTpLots'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); applyLevelPanel(); }
+        else if (e.key === 'Escape') { e.preventDefault(); closeLevelPanel(); }
+      });
+    });
 
     $('lotsInput').addEventListener('change', function () {
       var p = activePane();
@@ -2266,10 +2482,16 @@
     // 窗口变窄后周期条才溢出, 需要重新把活动周期滚进可视区
     window.addEventListener('resize', function () { syncPeriodBar(activePane()); });
 
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideMenu(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        closeLevelPanel();
+        hideMenu();
+      }
+    });
     document.addEventListener('mousedown', function (e) {
       var m = $('ctxMenu');
       if (m && !m.hidden && !e.target.closest('.ctx-menu')) hideMenu();
+      if (levelCtx && !e.target.closest('#levelPop')) closeLevelPanel();
     }, true);
 
     window.KR = {
@@ -2293,6 +2515,21 @@
           return p ? p.book.placeOrder(type, price, { lots: p.book.lots, contract: p.book.contract, oco: p.book.oco }) : null;
         },
         cancelAllOrders: function () { var p = activePane(); if (p) p.book.cancelAllOrders(); },
+        openLevel: function (id, kind) {
+          var p = activePane();
+          if (!p || !p.book) return;
+          var pos = p.book._posById(id) || p.book.activePosition();
+          if (!pos) return;
+          openLevelPanel(p, pos.id, kind || null, window.innerWidth / 2, window.innerHeight / 2, false);
+        },
+        setLevel: function (id, kind, price, lots) {
+          var p = activePane();
+          return p && p.book ? p.book.setLevel(id, kind, price, lots) : null;
+        },
+        clearLevel: function (id, kind) {
+          var p = activePane();
+          return p && p.book ? p.book.clearLevel(id, kind) : false;
+        },
         pane: function (i) { return state.panes[i]; }
       }
     };

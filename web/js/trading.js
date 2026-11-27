@@ -6,6 +6,7 @@
   var DIR_COLOR = { 1: '#26a69a', '-1': '#ef5350' };
   var SL_COLOR = '#ef5350';
   var TP_COLOR = '#26a69a';
+  var LEVEL_LABEL = { sl: '止损', tp: '止盈' };
 
   // 挂单: 买入限价/卖出限价/买入止损/卖出止损
   var ORDER_DIR = { buy_limit: 1, sell_limit: -1, buy_stop: 1, sell_stop: -1 };
@@ -27,6 +28,20 @@
     return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
 
+  /** 手数按 0.01 取整; 部分平仓后剩余仓位不会跌破最小手数 */
+  function roundLots(v) {
+    var n = Math.round(Number(v) * 100) / 100;
+    return n < 0.01 ? 0.01 : n;
+  }
+
+  /** 存档里的止盈止损手数: null 表示「全部剩余仓位」, 旧数据迁移时保持这个语义 */
+  function savedLevelLots(v, maxLots) {
+    if (v == null) return null;
+    var n = Number(v);
+    if (!isFinite(n) || n <= 0) return null;
+    return Math.min(roundLots(n), maxLots);
+  }
+
   function TradeBook(opts) {
     this.getBars = opts.getBars;
     this.getCursor = opts.getCursor;
@@ -34,6 +49,7 @@
     this.getPriceAt = opts.getPriceAt || null;
     this.onUpdate = opts.onUpdate || function () {};
     this.onHint = opts.onHint || function () {};
+    this.onEditLevel = opts.onEditLevel || function () {};
 
     this.symbol = '';
     this.digits = 2;
@@ -51,10 +67,14 @@
     try { this.oco = localStorage.getItem(OCO_KEY) === '1'; } catch (e) { }
 
     this._btns = {};           // 每笔持仓的 SL/TP 按钮矩形 (每帧绘制时更新)
+    this._levelHits = {};      // 活动持仓止盈/止损标签右侧的 × 取消按钮
+    this._entries = {};        // 每条成本线的可拖动区域 (每帧绘制时更新)
+    this._draft = null;        // 从成本线拖出的候选止盈/止损 { id, kind, price }
+    this._lastPointer = null;  // 最近的画布坐标, 松开后用来给设置面板定位
     this._slBtn = null;        // 活动持仓的按钮, 兼容旧调用方
     this._tpBtn = null;
     this._layer = null;
-    this._dragMode = null;     // { kind, id } 或旧的 'sl-button' 字符串
+    this._dragMode = null;     // { kind, id, startX, startY, moved } 或旧的 'sl-button' 字符串
   }
 
   /* 兼容旧接口: book.position 返回当前选中的持仓 */
@@ -110,6 +130,70 @@
   TradeBook.prototype.setShowHistory = function (on) {
     this.showHistory = !!on;
     this.onUpdate();
+  };
+
+  /* ------------------------------------------------------------ 止盈/止损设置 */
+
+  /** 某个止盈/止损实际会平掉的手数; 未单独设置时默认平掉全部剩余仓位 */
+  TradeBook.prototype.levelLots = function (pos, kind) {
+    if (!pos) return 0;
+    var v = kind === 'sl' ? pos.slLots : pos.tpLots;
+    if (v == null || !isFinite(v) || v <= 0) return pos.lots;
+    return Math.min(v, pos.lots);
+  };
+
+  /** 价格按品种最小变动价位取整 */
+  TradeBook.prototype._roundPrice = function (price) {
+    var tick = this._tick();
+    return parseFloat((Math.round(price / tick) * tick).toFixed(this.digits));
+  };
+
+  /**
+   * 设置某个方向的价格与手数; 价格会自动夹到现价正确的一侧。
+   * lots 为 null 表示不限制, 触发时平掉全部剩余仓位。
+   * 返回实际写入的 { price, lots }。
+   */
+  TradeBook.prototype.setLevel = function (id, kind, price, lots) {
+    var p = this._posById(id);
+    if (!p || (kind !== 'sl' && kind !== 'tp')) return null;
+    var value = Number(price);
+    if (!isFinite(value)) return null;
+    value = kind === 'sl' ? this._clampStop(value, p.dir) : this._clampTarget(value, p.dir);
+    value = this._roundPrice(value);
+
+    var lv = null;
+    if (lots != null && lots !== '') {
+      lv = Number(lots);
+      if (!isFinite(lv) || lv <= 0) return null;
+      lv = Math.min(roundLots(lv), p.lots);
+    }
+
+    if (kind === 'sl') {
+      p.sl = value;
+      p.slLots = lv;
+    } else {
+      p.tp = value;
+      p.tpLots = lv;
+    }
+    this.onUpdate();
+    return { price: value, lots: this.levelLots(p, kind) };
+  };
+
+  /** 取消某个止盈/止损; silent=true 时由调用方统一刷新 */
+  TradeBook.prototype.clearLevel = function (id, kind, silent) {
+    var p = this._posById(id);
+    if (!p || (kind !== 'sl' && kind !== 'tp')) return false;
+    if (kind === 'sl' ? p.sl == null : p.tp == null) return false;
+    if (kind === 'sl') {
+      p.sl = null;
+      p.slLots = null;
+    } else {
+      p.tp = null;
+      p.tpLots = null;
+    }
+    this.onHint('已取消' + LEVEL_LABEL[kind] + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
+    if (!silent) this.onUpdate();
+    return true;
   };
 
   TradeBook.prototype.idxOfTime = function (time) {
@@ -174,7 +258,9 @@
       lots: opts.lots != null ? opts.lots : this.lots,
       contract: opts.contract != null ? opts.contract : this.contract,
       sl: opts.sl != null ? opts.sl : null,
-      tp: opts.tp != null ? opts.tp : null
+      tp: opts.tp != null ? opts.tp : null,
+      slLots: opts.slLots != null ? opts.slLots : null,
+      tpLots: opts.tpLots != null ? opts.tpLots : null
     };
   };
 
@@ -193,10 +279,12 @@
     if (pos.sl && ((dir === 1 && pos.sl >= pos.entryPrice) || (dir === -1 && pos.sl <= pos.entryPrice))) {
       this.onHint('止损价方向不对，已忽略');
       pos.sl = null;
+      pos.slLots = null;
     }
     if (pos.tp && ((dir === 1 && pos.tp <= pos.entryPrice) || (dir === -1 && pos.tp >= pos.entryPrice))) {
       this.onHint('止盈价方向不对，已忽略');
       pos.tp = null;
+      pos.tpLots = null;
     }
 
     this.positions.push(pos);
@@ -366,6 +454,8 @@
       contract: pos.contract,
       sl: pos.sl,
       tp: pos.tp,
+      slLots: pos.slLots != null ? pos.slLots : null,
+      tpLots: pos.tpLots != null ? pos.tpLots : null,
       reason: reason,
       pnl: pnl
     };
@@ -380,8 +470,9 @@
     return trade;
   };
 
-  TradeBook.prototype._pnl = function (pos, price) {
-    return (price - pos.entryPrice) * pos.dir * pos.lots * pos.contract;
+  TradeBook.prototype._pnl = function (pos, price, lots) {
+    var n = lots == null ? pos.lots : lots;
+    return (price - pos.entryPrice) * pos.dir * n * pos.contract;
   };
 
   /** 单笔持仓的浮动盈亏: 光标在开仓之前时按 0 处理 */
@@ -423,13 +514,61 @@
   TradeBook.prototype._checkBar = function (pos, bar) {
     var sl = pos.sl, tp = pos.tp;
     if (pos.dir === 1) {
-      if (sl && bar.low <= sl) { this._settle(pos, bar.time, sl, '止损'); return true; }
-      if (tp && bar.high >= tp) { this._settle(pos, bar.time, tp, '止盈'); return true; }
+      if (sl && bar.low <= sl) { this._exitAtLevel(pos, 'sl', bar.time, sl); return true; }
+      if (tp && bar.high >= tp) { this._exitAtLevel(pos, 'tp', bar.time, tp); return true; }
     } else {
-      if (sl && bar.high >= sl) { this._settle(pos, bar.time, sl, '止损'); return true; }
-      if (tp && bar.low <= tp) { this._settle(pos, bar.time, tp, '止盈'); return true; }
+      if (sl && bar.high >= sl) { this._exitAtLevel(pos, 'sl', bar.time, sl); return true; }
+      if (tp && bar.low <= tp) { this._exitAtLevel(pos, 'tp', bar.time, tp); return true; }
     }
     return false;
+  };
+
+  /**
+   * 价格触发止盈/止损。该方向设置了手数时只平掉这部分仓位, 剩余仓位继续持有;
+   * 手数不小于剩余仓位时按整笔平仓处理。
+   */
+  TradeBook.prototype._exitAtLevel = function (pos, kind, exitTime, exitPrice) {
+    var lots = roundLots(this.levelLots(pos, kind));
+    if (lots >= pos.lots - 1e-9) {
+      this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind]);
+      return;
+    }
+
+    var trade = {
+      id: uid(),
+      no: pos.no,
+      dir: pos.dir,
+      entryTime: pos.entryTime,
+      entryPrice: pos.entryPrice,
+      exitTime: exitTime,
+      exitPrice: exitPrice,
+      lots: lots,
+      contract: pos.contract,
+      sl: pos.sl,
+      tp: pos.tp,
+      slLots: pos.slLots != null ? pos.slLots : null,
+      tpLots: pos.tpLots != null ? pos.tpLots : null,
+      reason: LEVEL_LABEL[kind],
+      pnl: this._pnl(pos, exitPrice, lots)
+    };
+
+    pos.lots = roundLots(pos.lots - lots);
+    if (kind === 'sl') {
+      pos.sl = null;
+      pos.slLots = null;
+    } else {
+      pos.tp = null;
+      pos.tpLots = null;
+    }
+    // 另一侧的手数不能超过剩余仓位, 否则面板上会显示一个永远平不掉的数字
+    if (pos.slLots != null) pos.slLots = Math.min(pos.slLots, pos.lots);
+    if (pos.tpLots != null) pos.tpLots = Math.min(pos.tpLots, pos.lots);
+
+    this.trades.push(trade);
+    this.trades.sort(function (a, b) { return a.exitTime - b.exitTime; });
+    this.onHint(LEVEL_LABEL[kind] + ' ' + lots + ' 手 @ ' + exitPrice.toFixed(this.digits) +
+      '，剩余 ' + pos.lots + ' 手' + (this.positions.length > 1 ? '（#' + (pos.no || '') + '）' : ''));
+    this.onUpdate();
   };
 
   /* ------------------------------------------------------------ 统计 */
@@ -477,6 +616,8 @@
     var cur = this.getCursor();
     this._layer = layer;
     this._btns = {};
+    this._levelHits = {};
+    this._entries = {};
     this._slBtn = null;
     this._tpBtn = null;
 
@@ -490,6 +631,7 @@
     }
 
     if (this.positions.length) this._paintPositions(ctx, layer, dg, cur);
+    if (this._draft) this._paintDraft(ctx, layer, dg, cur);
     if (this.orders.length) this._paintOrders(ctx, layer, dg, cur);
   };
 
@@ -613,6 +755,8 @@
       ctx.stroke();
       ctx.restore();
       self._arrow(ctx, item.x1, item.y, pos.dir, color);
+      // 成本线整段可拖动: 按住后上下拖会自动识别成止盈或止损
+      self._entries[pos.id] = { x1: item.x1, x2: right, y: item.y };
     });
 
     // 2. 止损 / 止盈线: 选中持仓带文字, 其余只画淡线, 避免多单时满屏标签
@@ -620,11 +764,11 @@
       var pos = item.p;
       var isActive = !!(active && active.id === pos.id);
       if (pos.sl != null) {
-        if (isActive) self._level(ctx, layer, pos.sl, SL_COLOR, 'SL');
+        if (isActive) self._level(ctx, layer, pos.sl, SL_COLOR, 'SL', pos, 'sl');
         else self._levelQuiet(ctx, layer, pos.sl, SL_COLOR);
       }
       if (pos.tp != null) {
-        if (isActive) self._level(ctx, layer, pos.tp, TP_COLOR, 'TP');
+        if (isActive) self._level(ctx, layer, pos.tp, TP_COLOR, 'TP', pos, 'tp');
         else self._levelQuiet(ctx, layer, pos.tp, TP_COLOR);
       }
     });
@@ -647,6 +791,39 @@
     });
   };
 
+  /** 从成本线拖出的预览线: 拖到现价盈利侧变绿(止盈), 亏损侧变红(止损) */
+  TradeBook.prototype._paintDraft = function (ctx, layer, dg, cur) {
+    var d = this._draft;
+    if (!d) return;
+    var pos = this._posById(d.id);
+    if (!pos) { this._draft = null; return; }
+    var pe = this.idxOfTime(pos.entryTime);
+    if (pe < 0 || pe > cur) return;
+    var y = layer.yOf(d.price);
+    if (y === null) return;
+    var color = d.kind === 'tp' ? TP_COLOR : SL_COLOR;
+    var right = layer.w;
+    if (this.getPlotWidth) {
+      var pw = this.getPlotWidth();
+      if (pw > 0) right = pw;
+    }
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.95;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.restore();
+
+    var text = (d.kind === 'tp' ? '止盈 TP' : '止损 SL') + ' 预览 ' + d.price.toFixed(dg) +
+      ' · ' + this.levelLots(pos, d.kind) + '手';
+    layer._tag(text, 8, y, color, 'left');
+  };
+
   /** 成本线标签左侧的 SL / TP 按钮: 按住上下拖即可设置; 返回两个按钮的屏幕矩形 */
   TradeBook.prototype._drawButtons = function (ctx, layer, tag, y, p) {
     var bw = 24, bh = 17, gap = 4;
@@ -663,7 +840,7 @@
     this._pill(ctx, layer, tpBtn, y, p.tp != null, 'TP',
       '#26a69a', light ? '#00796b' : '#4fd8c6', light ? 'rgba(38,166,154,.14)' : 'rgba(38,166,154,.26)', light);
 
-    return { sl: slBtn, tp: tpBtn, y: y };
+    return { sl: slBtn, tp: tpBtn, y: y, tag: tag };
   };
 
   TradeBook.prototype._pill = function (ctx, layer, r, y, active, text, stroke, fg, bgActive, light) {
@@ -697,14 +874,24 @@
     var curBar = this.bars[this.getCursor()];
     var curTime = curBar ? curBar.time : 0;
 
-    // 按钮: 后画的在上层, 倒序命中
+    // 标签右侧的 × 取消按钮: 后画的在上层, 倒序命中
     for (var i = this.positions.length - 1; i >= 0; i--) {
       var p = this.positions[i];
-      if (p.entryTime > curTime) continue;          // 开仓时间在游标之后的持仓不画, 也不响应
-      var b = this._btns[p.id];
+      if (p.entryTime > curTime) continue;
+      if (inside(this._levelHits[p.id + ':sl'], x, y)) return { kind: 'sl-remove', id: p.id };
+      if (inside(this._levelHits[p.id + ':tp'], x, y)) return { kind: 'tp-remove', id: p.id };
+    }
+
+    // SL / TP 按钮
+    for (i = this.positions.length - 1; i >= 0; i--) {
+      var q0 = this.positions[i];
+      if (q0.entryTime > curTime) continue;          // 开仓时间在游标之后的持仓不画, 也不响应
+      var b = this._btns[q0.id];
       if (!b) continue;
-      if (inside(b.sl, x, y)) return { kind: 'sl-button', id: p.id };
-      if (inside(b.tp, x, y)) return { kind: 'tp-button', id: p.id };
+      if (inside(b.sl, x, y)) return { kind: 'sl-button', id: q0.id };
+      if (inside(b.tp, x, y)) return { kind: 'tp-button', id: q0.id };
+      // 成本线标签本身也是拖拽手柄: 成本线靠近右边界时仍然很好点中
+      if (inside(b.tag, x, y, 1)) return { kind: 'entry-line', id: q0.id };
     }
 
     if (!this._layer) return null;
@@ -730,7 +917,19 @@
         }
       }
     }
-    return best;
+    if (best) return best;
+
+    // 成本线: 按住后上下拖, 按落点在现价的盈利侧/亏损侧自动识别止盈与止损
+    for (i = this.positions.length - 1; i >= 0; i--) {
+      var q2 = this.positions[i];
+      if (q2.entryTime > curTime) continue;
+      var e = this._entries[q2.id];
+      if (!e) continue;
+      if (x >= e.x1 - 3 && x <= e.x2 + 2 && Math.abs(y - e.y) <= 5) {
+        return { kind: 'entry-line', id: q2.id };
+      }
+    }
+    return null;
   };
 
   /** 兼容旧调用: 只返回命中类型字符串 */
@@ -740,9 +939,30 @@
   };
 
   TradeBook.prototype.dragStart = function (x, y) {
+    this._draft = null;
+    this._lastPointer = { x: x, y: y };
     var hit = this.hitTestEx(x, y);
-    this._dragMode = hit || null;
-    if (hit && this.activePosId !== hit.id) {
+    if (hit && (hit.kind === 'sl-remove' || hit.kind === 'tp-remove')) {
+      // 点标签右侧的 × 直接取消, 不进入拖拽
+      this._dragMode = null;
+      this.clearLevel(hit.id, hit.kind === 'sl-remove' ? 'sl' : 'tp');
+      return;
+    }
+
+    this._dragMode = hit
+      ? { kind: hit.kind, id: hit.id, startX: x, startY: y, moved: false }
+      : null;
+    if (!hit) return;
+
+    if (hit.kind === 'entry-line') {
+      var p = this._posById(hit.id);
+      if (p) {
+        this.onHint(p.dir === 1
+          ? '上下拖动成本线：现价上方自动为止盈，下方为止损'
+          : '上下拖动成本线：现价下方自动为止盈，上方为止损');
+      }
+    }
+    if (this.activePosId !== hit.id) {
       this.activePosId = hit.id;      // 直接拖某笔持仓的止损线时顺便选中它
       this.onUpdate();
     }
@@ -778,10 +998,38 @@
     var price = this.getPriceAt(y);
     if (price === null || price === undefined || !isFinite(price)) return;
 
+    this._lastPointer = { x: x, y: y };
+    if (typeof mode === 'object') {
+      // 这些控件都是上下拖的; 只有纵向位移才算真正拖动, 横向划过标签仍按单击处理
+      mode.moved = Math.abs(y - mode.startY) > 2;
+    }
+
+    if (kind === 'entry-line') {
+      if (typeof mode === 'object' && !mode.moved) {
+        if (this._draft) {
+          this._draft = null;
+          if (this._layer) this._layer.requestRedraw();
+        }
+        return;
+      }
+      var close = this.currentClose();
+      if (close === null) return;
+      // 落点在现价上方/下方决定方向, 再夹到合法的一侧; 因此多单在现价下方拖动就是跟踪止损
+      var above = price >= close;
+      var levelKind = p.dir === 1 ? (above ? 'tp' : 'sl') : (above ? 'sl' : 'tp');
+      var value = levelKind === 'sl'
+        ? this._clampStop(price, p.dir)
+        : this._clampTarget(price, p.dir);
+      this._draft = { id: id, kind: levelKind, price: this._roundPrice(value) };
+      if (this._layer) this._layer.requestRedraw();
+      else this.onUpdate();
+      return;
+    }
+
     if (kind === 'sl-button' || kind === 'sl-line') {
-      p.sl = this._clampStop(price, p.dir);
+      p.sl = this._roundPrice(this._clampStop(price, p.dir));
     } else {
-      p.tp = this._clampTarget(price, p.dir);
+      p.tp = this._roundPrice(this._clampTarget(price, p.dir));
     }
     this.onUpdate();
   };
@@ -789,12 +1037,39 @@
   TradeBook.prototype.dragEnd = function () {
     var mode = this._dragMode;
     this._dragMode = null;
-    if (!mode) return;
+    if (!mode) { this._draft = null; return; }
     var kind = typeof mode === 'string' ? mode : mode.kind;
     var id = typeof mode === 'string' ? this.activePosId : mode.id;
+    var at = this._lastPointer || { x: 0, y: 0 };
     var p = this._posById(id);
-    if (!p) return;
-    if (kind === 'sl-button' || kind === 'sl-line') {
+    if (!p) { this._draft = null; return; }
+
+    if (kind === 'entry-line') {
+      var draft = this._draft;
+      this._draft = null;
+      if (typeof mode === 'object' && mode.moved && draft) {
+        var prevLots = draft.kind === 'sl' ? p.slLots : p.tpLots;
+        var res = this.setLevel(id, draft.kind, draft.price, prevLots);
+        if (res) {
+          this.onHint((draft.kind === 'sl' ? '已自动识别为止损' : '已自动识别为止盈') +
+            ' ' + res.price.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
+          this.onEditLevel(id, draft.kind, at.x, at.y, true);
+          return;
+        }
+      }
+      // 没拖动就是点击成本线: 打开这笔试仓的风险设置
+      this.onEditLevel(id, null, at.x, at.y, false);
+      return;
+    }
+
+    var levelKind = (kind === 'sl-button' || kind === 'sl-line') ? 'sl' : 'tp';
+    if (typeof mode === 'object' && !mode.moved) {
+      // 单击（没有拖动）止盈/止损线或按钮: 打开设置面板
+      this.onEditLevel(id, levelKind, at.x, at.y, false);
+      return;
+    }
+
+    if (levelKind === 'sl') {
       if (p.sl != null) this.onHint('止损设为 ' + p.sl.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + p.no + '）' : ''));
     } else if (p.tp != null) {
       this.onHint('止盈设为 ' + p.tp.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + p.no + '）' : ''));
@@ -802,7 +1077,7 @@
     this.onUpdate();
   };
 
-  TradeBook.prototype._level = function (ctx, layer, price, color, tag) {
+  TradeBook.prototype._level = function (ctx, layer, price, color, tag, pos, kind) {
     var y = layer.yOf(price);
     if (y === null) return;
     ctx.save();
@@ -815,7 +1090,35 @@
     ctx.lineTo(layer.w, y);
     ctx.stroke();
     ctx.restore();
-    layer._tag(tag + ' ' + price.toFixed(this.digits), 8, y, color, 'left');
+
+    var lots = pos ? this.levelLots(pos, kind) : null;
+    var text = tag + ' ' + price.toFixed(this.digits) +
+      (lots != null ? ' · ' + parseFloat(lots.toFixed(2)) + '手' : '');
+    var rect = layer._tag(text, 8, y, color, 'left');
+    if (!pos || !kind) return;
+
+    // 标签右侧的小 ×: 点一下即可取消这条止盈/止损
+    var btn = { x: rect.x + rect.w + 4, y: y - 8, w: 16, h: 16 };
+    ctx.save();
+    ctx.fillStyle = 'rgba(20,24,34,.92)';
+    layer._roundRect(btn.x, btn.y, btn.w, btn.h, 3);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    layer._roundRect(btn.x, btn.y, btn.w, btn.h, 3);
+    ctx.stroke();
+    var cx = btn.x + btn.w / 2;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - 3, y - 3);
+    ctx.lineTo(cx + 3, y + 3);
+    ctx.moveTo(cx + 3, y - 3);
+    ctx.lineTo(cx - 3, y + 3);
+    ctx.stroke();
+    ctx.restore();
+    this._levelHits[pos.id + ':' + kind] = btn;
   };
 
   /** 未选中持仓的止损/止盈线: 只要位置, 不要文字标签 */
@@ -872,16 +1175,21 @@
     for (var i = 0; i < raw.length; i++) {
       var p = raw[i];
       if (!p || !p.dir || p.entryTime == null || p.entryPrice == null) continue;
+      var lots = p.lots != null ? roundLots(p.lots) : this.lots;
+      var sl = p.sl != null ? p.sl : null;
+      var tp = p.tp != null ? p.tp : null;
       this.positions.push({
         id: p.id || uid(),
         no: p.no || (i + 1),
         dir: p.dir === -1 ? -1 : 1,
         entryTime: p.entryTime,
         entryPrice: p.entryPrice,
-        lots: p.lots != null ? p.lots : this.lots,
+        lots: lots,
         contract: p.contract != null ? p.contract : this.contract,
-        sl: p.sl != null ? p.sl : null,
-        tp: p.tp != null ? p.tp : null
+        sl: sl,
+        tp: tp,
+        slLots: sl == null ? null : savedLevelLots(p.slLots, lots),
+        tpLots: tp == null ? null : savedLevelLots(p.tpLots, lots)
       });
     }
     this._nextNo = 1;
@@ -929,6 +1237,10 @@
       : (this.positions.length ? this.positions[this.positions.length - 1].id : null);
     // 旧周期的按钮/拖拽状态不能留到新数据上
     this._btns = {};
+    this._levelHits = {};
+    this._entries = {};
+    this._draft = null;
+    this._lastPointer = null;
     this._slBtn = null;
     this._tpBtn = null;
     this._dragMode = null;
@@ -942,6 +1254,10 @@
     this._nextNo = 1;
     this.trades = [];
     this.orders = [];
+    this._levelHits = {};
+    this._entries = {};
+    this._draft = null;
+    this._dragMode = null;
     this.onUpdate();
   };
 

@@ -973,6 +973,25 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .pos-row .k { color: var(--muted-2); font-size: 12px; }
 .pos-row .v { font-variant-numeric: tabular-nums; }
 
+.pos-row.pos-levels {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 4px;
+  margin: 0 -4px;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.pos-row.pos-levels:hover { background: var(--panel-3); }
+.pos-row.pos-levels .k { flex: 0 0 auto; white-space: nowrap; }
+.pos-row.pos-levels .v { margin-left: auto; font-size: 11.5px; white-space: nowrap; }
+.pos-row .pos-edit {
+  flex: 0 0 auto;
+  color: #7ea6ff;
+  font-size: 10.5px;
+  opacity: .85;
+}
+.pos-row.pos-levels:hover .pos-edit { opacity: 1; text-decoration: underline; }
+
 .pos-head {
   display: flex;
   align-items: center;
@@ -1178,6 +1197,169 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   text-align: center;
   padding: 6px 0;
 }
+
+/* ------------------------------------------------------------ 止损/止盈设置弹层 */
+
+.level-pop {
+  position: fixed;
+  z-index: 210;
+  width: 368px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 10px;
+  background: rgba(24, 29, 42, .985);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+
+.level-pop[hidden] { display: none; }
+
+.lp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 2px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.lp-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  color: #e6e9f0;
+  white-space: nowrap;
+}
+
+.lp-pos {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-x {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.lp-x:hover { background: var(--panel-3); color: var(--text); }
+
+.lp-body { padding-top: 2px; }
+
+.lp-row {
+  display: grid;
+  grid-template-columns: 68px 1fr 82px 46px;
+  gap: 7px;
+  align-items: end;
+  margin-top: 7px;
+  padding: 7px 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+.lp-row.focus {
+  border-color: rgba(41, 98, 255, .55);
+  background: rgba(41, 98, 255, .09);
+}
+
+.lp-kind {
+  align-self: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  white-space: nowrap;
+}
+
+.lp-kind em {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 400;
+  opacity: .65;
+  margin-left: 2px;
+}
+
+.lp-kind.sl { color: #ff8a87; }
+.lp-kind.tp { color: #4fd8c6; }
+
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 10px;
+  letter-spacing: .4px;
+  color: var(--muted-2);
+}
+
+.lp-field input {
+  width: 100%;
+  background: #10141d;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 7px;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-field input:focus { border-color: var(--accent); }
+.lp-field input::placeholder { color: #4a5364; }
+
+.lp-clear {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 5px 4px;
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lp-clear:hover { color: var(--down); border-color: rgba(239, 83, 80, .55); background: rgba(239, 83, 80, .10); }
+
+.lp-tip {
+  margin-top: 8px;
+  padding: 0 3px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.lp-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.lp-btn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lp-btn:hover { filter: brightness(1.12); }
 
 /* ------------------------------------------------------------ 右键菜单 */
 

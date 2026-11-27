@@ -19,7 +19,8 @@
     "verify:snap": "node tools/verify10.mjs",
     "verify:style": "node tools/verify11.mjs",
     "verify:chart-style": "node tools/verify12.mjs",
-    "verify:multi": "node tools/verify13.mjs"
+    "verify:multi": "node tools/verify13.mjs",
+    "verify:levels": "node tools/verify14.mjs"
   },
   "license": "MIT",
   "type": "commonjs",

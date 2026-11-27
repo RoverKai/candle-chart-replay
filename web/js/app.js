@@ -2569,6 +2569,7 @@
       state: state,
       api: {
         setCursor: setCursor,
+        hint: hint,
         open: doTrade,
         close: doClose,
         closeOne: doCloseOne,

@@ -204,6 +204,33 @@ try {
   check('全选恢复全部工具', (await page.locator('#floatToolList .ft-btn').count()) === 9);
   await page.click('#btnFloatDone');
 
+  // ---------- localStorage 写入失败 ----------
+  await page.evaluate(() => {
+    window.__origFloatSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key) {
+      if (String(key).indexOf('kline-replay:float-tools') === 0) {
+        throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      }
+      return window.__origFloatSetItem.apply(this, arguments);
+    };
+  });
+  await page.click('#btnFloatClose');
+  await page.waitForTimeout(150);
+  const saveFail = await page.evaluate(() => {
+    const text = document.getElementById('hint') ? document.getElementById('hint').textContent : '';
+    const hidden = document.getElementById('floatTools').hidden;
+    Storage.prototype.setItem = window.__origFloatSetItem;
+    delete window.__origFloatSetItem;
+    return { text, hidden };
+  });
+  check('存储写入失败时提示无法保存',
+    saveFail.hidden && saveFail.text.indexOf('无法保存') >= 0,
+    JSON.stringify(saveFail));
+  await page.click('#btnDrawMenu');
+  await page.click('#btnFloatToggle');
+  await page.waitForTimeout(150);
+  check('存储恢复后仍可重新显示工具栏', !(await toolbarInfo()).hidden);
+
   // ---------- 尺寸 / 布局变化 ----------
   await page.setViewportSize({ width: 800, height: 760 });
   await page.waitForTimeout(250);

@@ -15,6 +15,7 @@
   var observer = null;
   var syncScheduled = false;
   var dragging = false;
+  var saveWarned = false;
 
   /* ------------------------------------------------------------ 工具清单 */
 
@@ -76,8 +77,19 @@
     return out;
   }
 
+  /** 写入失败(无痕模式 / 存储被禁用 / 配额满)时提示一次, 不让用户误以为设置已保存 */
   function saveState() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { }
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+      saveWarned = false;
+      return true;
+    } catch (e) {
+      if (!saveWarned) {
+        saveWarned = true;
+        showHint('悬浮工具栏设置无法保存（浏览器存储不可用或已满）');
+      }
+      return false;
+    }
   }
 
   /* ------------------------------------------------------------ 位置 */
@@ -139,10 +151,10 @@
     var box = $('floatTools');
     if (box) box.hidden = hidden;
     if (hidden) closeSettings();
-    saveState();
+    var saved = saveState();
     syncMenu();
     if (!hidden) requestAnimationFrame(layoutToolbar);
-    if (changed && !silent) {
+    if (changed && !silent && saved) {
       // 提示文案与侧边栏入口对应, 隐藏后仍知道去哪里找回
       showHint(hidden ? '悬浮工具栏已隐藏，可在「画线 ▾」中重新显示' : '悬浮工具栏已显示');
     }

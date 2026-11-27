@@ -584,9 +584,14 @@
         return;
       }
 
-      if (self.tool === 'cursor' && self.interceptor && self.interceptor.hitTest(x, y)) {
-        host.style.cursor = 'ns-resize';
-        return;
+      if (self.tool === 'cursor' && self.interceptor) {
+        var ih = self.interceptor.hitTestEx
+          ? self.interceptor.hitTestEx(x, y)
+          : (self.interceptor.hitTest(x, y) ? { kind: 'line' } : null);
+        if (ih) {
+          host.style.cursor = /-remove$/.test(ih.kind) ? 'pointer' : 'ns-resize';
+          return;
+        }
       }
 
       var hovering = self.tool === 'cursor' ? self._hitTest(x, y) : null;

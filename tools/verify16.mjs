@@ -257,6 +257,8 @@ await page.waitForTimeout(250);
 st = await bookState();
 check('清除止损同时清空理由', st.positions[0].sl == null && st.positions[0].slReason == null,
   JSON.stringify(st.positions[0]));
+check('清除提示说明立即生效', (await page.textContent('#lpHint')).includes('立即生效'),
+  await page.textContent('#lpHint'));
 await page.click('#lpClose');
 
 /* ============================================================ 5. 拖拽只预览，应用后才写入 */
@@ -509,9 +511,14 @@ await page.evaluate((k) => {
   localStorage.setItem(k, JSON.stringify({
     position: {
       id: 'legacy-reason-1', dir: 1, entryTime: bar.time, entryPrice: bar.close,
-      lots: 0.5, contract: 100, sl: null, tp: null
+      lots: 0.5, contract: 100, sl: Number((bar.close - 5).toFixed(2)), tp: null
     },
-    trades: [],
+    trades: [{
+      id: 'legacy-trade-1', no: 1, dir: 1,
+      entryTime: bar.time, entryPrice: Number((bar.close - 1).toFixed(2)),
+      exitTime: bar.time, exitPrice: bar.close, lots: 0.1, contract: 100,
+      reason: '手动平仓', pnl: 0
+    }],
     orders: []
   }));
 }, legacyKey);
@@ -527,6 +534,27 @@ check('旧存档无理由可正常加载', st.count === 1 && st.positions[0].ent
   JSON.stringify(st.positions));
 check('旧存档持仓显示未填写理由', (await page.textContent('#posBlock')).includes('未填写'),
   (await page.textContent('#posBlock')).slice(0, 160));
+const legacyTradeText = await page.textContent('#tradeList');
+const legacyTradeTitle = await page.locator('#tradeList .trade-item').first().getAttribute('title');
+check('旧成交记录不拿平仓原因冒充平仓理由',
+  legacyTradeText.includes('平：未填写') && !legacyTradeText.includes('平：手动平仓') &&
+  legacyTradeTitle.includes('平仓理由：未填写'),
+  JSON.stringify({ text: legacyTradeText, title: legacyTradeTitle }));
+
+// 旧仓已有止损但没有止损理由: 只新增止盈时不应被另一侧挡住
+await page.evaluate(() => window.KR.api.openLevel(window.KR.book.position.id, 'tp'));
+await page.waitForTimeout(200);
+const legacyClose = await currentClose();
+await page.fill('#lpTpPrice', String(Number((legacyClose + 5).toFixed(2))));
+await page.fill('#lpTpReason', '旧仓补止盈理由');
+await page.click('#lpApply');
+await page.waitForTimeout(300);
+st = await bookState();
+check('旧档位无理由不会挡住另一侧应用',
+  st.positions[0].tp != null && st.positions[0].tpReason === '旧仓补止盈理由' &&
+  st.positions[0].sl != null && st.positions[0].slReason == null,
+  JSON.stringify(st.positions[0]));
+
 await page.click('#btnClosePos');
 await page.waitForTimeout(200);
 await page.fill('#reasonText', '旧仓位平仓理由');
@@ -534,8 +562,8 @@ await page.click('#reasonConfirm');
 await page.waitForTimeout(300);
 st = await bookState();
 check('旧持仓平仓仍需理由并正确记录',
-  st.count === 0 && st.trades[0] && st.trades[0].exitReason === '旧仓位平仓理由',
-  JSON.stringify(st.trades[0]));
+  st.count === 0 && st.trades.some((t) => t.exitReason === '旧仓位平仓理由'),
+  JSON.stringify(st.trades));
 
 /* ============================================================ 12. 多窗格理由隔离 */
 await reset();

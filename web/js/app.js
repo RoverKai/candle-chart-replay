@@ -1980,7 +1980,8 @@
       list.innerHTML = book.trades.slice().reverse().map(function (t) {
         var isLong = t.dir === 1;
         var entryWhy = String(t.entryReason || '');
-        var exitWhy = String(t.exitReason || t.reason || '');
+        // 旧成交没有 exitReason 时不要拿原因（手动平仓/止损）冒充理由，保持与 CSV 一致
+        var exitWhy = String(t.exitReason || '');
         var title = '入场理由：' + (entryWhy || '未填写') +
           ' · 平仓理由：' + (exitWhy || '未填写') +
           ' · 平仓原因：' + (t.reason || '—');
@@ -2420,10 +2421,6 @@
         bad = { kind: k, el: priceEl, msg: LEVEL_LABEL[k] + '价格格式不正确' };
         return;
       }
-      if (!rawReason) {
-        bad = { kind: k, el: reasonEl, msg: '设置' + LEVEL_LABEL[k] + '需填写' + LEVEL_LABEL[k] + '理由' };
-        return;
-      }
       var lots = null;
       if (rawLots) {
         lots = parseFloat(rawLots);
@@ -2440,6 +2437,11 @@
       var lotsChanged = (lots == null) !== (storedLots == null) ||
         (lots != null && storedLots != null && Math.abs(lots - storedLots) > 1e-9);
       var reasonChanged = rawReason !== storedReason;
+      // 只对本次真正设置/修改的一侧要求理由: 旧存档另一侧没有理由时不应挡住本侧应用
+      if (!rawReason && (priceChanged || lotsChanged || reasonChanged)) {
+        bad = { kind: k, el: reasonEl, msg: '设置' + LEVEL_LABEL[k] + '需填写' + LEVEL_LABEL[k] + '理由' };
+        return;
+      }
       ops.push({
         kind: k, price: price, lots: lots, reason: rawReason,
         priceChanged: priceChanged, lotsChanged: lotsChanged, reasonChanged: reasonChanged
@@ -2499,7 +2501,7 @@
     var tip = $('lpHint');
     if (tip) {
       tip.classList.remove('error');
-      tip.textContent = '已取消' + LEVEL_LABEL[kind] + '；应用后生效。';
+      tip.textContent = '已取消' + LEVEL_LABEL[kind] + '（立即生效，关闭面板不会恢复）。';
     }
     hint('已取消' + LEVEL_LABEL[kind]);
   }

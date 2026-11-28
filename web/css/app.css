@@ -1897,7 +1897,7 @@ body.ft-dragging * { cursor: grabbing !important; user-select: none !important; 
   left: 0;
   right: 0;
   height: 2px;
-  background: var(--accent);
+  background: var(--accent, #2962ff);
   z-index: 5;
   pointer-events: none;
 }

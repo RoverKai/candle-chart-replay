@@ -21,6 +21,7 @@ const paneFrames = () => page.evaluate(() => Array.from(document.querySelectorAl
   const pr = pane.getBoundingClientRect();
   const wr = wrap.getBoundingClientRect();
   const cs = getComputedStyle(pane);
+  const ws = getComputedStyle(wrap);
   const after = getComputedStyle(wrap, '::after');
   return {
     active: pane.classList.contains('active'),
@@ -29,7 +30,12 @@ const paneFrames = () => page.evaluate(() => Array.from(document.querySelectorAl
     fill: Math.abs(pr.width - wr.width) < 0.5 && Math.abs(pr.height - wr.height) < 0.5,
     bar: after.content !== 'none' && after.content !== 'normal',
     barColor: after.backgroundColor,
-    barHeight: after.height
+    barHeight: after.height,
+    wrapPosition: ws.position,
+    barPosition: after.position,
+    barTop: after.top,
+    barLeft: after.left,
+    barRight: after.right
   };
 }));
 
@@ -99,7 +105,10 @@ paneFrame = await paneFrames();
 check('双窗格均为直角无边框且仅活动窗格有顶部高亮条',
   paneFrame.every((f) => f.border === '0px' && f.radius === '0px' && f.fill) &&
   paneFrame[0].active && paneFrame[0].bar && paneFrame[0].barColor === 'rgb(41, 98, 255)' &&
-  paneFrame[0].barHeight === '2px' && !paneFrame[1].bar,
+  paneFrame[0].barHeight === '2px' &&
+  paneFrame[0].wrapPosition === 'relative' && paneFrame[0].barPosition === 'absolute' &&
+  paneFrame[0].barTop === '0px' && paneFrame[0].barLeft === '0px' && paneFrame[0].barRight === '0px' &&
+  !paneFrame[1].bar,
   JSON.stringify(paneFrame));
 
 // 回退一小段，留出推进空间

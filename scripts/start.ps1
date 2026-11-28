@@ -132,12 +132,16 @@ if (-not (Test-Path -LiteralPath $Bin)) {
   exit 1
 }
 
+$defaultHist = 'C:\Program Files (x86)\MetaTrader 4\history'
+$repoHist = Join-Path $Root 'data\history'
 $hist = if ($env:MT4_HISTORY) {
   $env:MT4_HISTORY
-} elseif (Test-Path -LiteralPath (Join-Path $Root 'data\history')) {
-  "$(Join-Path $Root 'data\history')  (仓库自带样例)"
+} elseif (Test-Path -LiteralPath $defaultHist) {
+  $defaultHist
+} elseif (Test-Path -LiteralPath $repoHist) {
+  "$repoHist  (仓库自带样例)"
 } else {
-  'C:\Program Files (x86)\MetaTrader 4\history'
+  $defaultHist
 }
 
 Write-Host ''

@@ -173,12 +173,15 @@ if [[ ! -x $BIN ]]; then
   exit 1
 fi
 
+MT4_DEFAULT='C:\Program Files (x86)\MetaTrader 4\history'
 if [[ -n ${MT4_HISTORY:-} ]]; then
   HISTORY_LABEL=$MT4_HISTORY
+elif [[ -d "$MT4_DEFAULT" ]]; then
+  HISTORY_LABEL=$MT4_DEFAULT
 elif [[ -d "$ROOT_DIR/data/history" ]]; then
   HISTORY_LABEL="$ROOT_DIR/data/history  (仓库自带样例)"
 else
-  HISTORY_LABEL='C:\Program Files (x86)\MetaTrader 4\history'
+  HISTORY_LABEL=$MT4_DEFAULT
 fi
 
 printf '\n'

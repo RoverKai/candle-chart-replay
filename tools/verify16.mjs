@@ -233,6 +233,23 @@ const storedWhy = await page.evaluate(() => {
 });
 check('只修改理由也会写入 localStorage', storedWhy === '前高目标（修正）', String(storedWhy));
 
+// 待确认档位即使原样点应用也要立即落盘（签名未变时不能只存在内存）
+await dragTagTo(c + 20);
+await page.waitForTimeout(800);
+const pendingApplyReason = await page.inputValue('#lpTpReason');
+const pendingApplyPrice = Number(await page.inputValue('#lpTpPrice'));
+check('拖动已有止盈时带出原理由', pendingApplyReason === '前高目标（修正）', pendingApplyReason);
+await page.click('#lpApply');
+await page.waitForTimeout(300);
+const storedAppliedTp = await page.evaluate(() => {
+  const k = Object.keys(localStorage).find((x) => x.startsWith('kline-replay:trades:'));
+  if (!k) return null;
+  const d = JSON.parse(localStorage.getItem(k));
+  return d.positions && d.positions[0] ? d.positions[0].tp : null;
+});
+check('待确认档位原样应用立即落盘', storedAppliedTp != null && Math.abs(storedAppliedTp - pendingApplyPrice) < 1e-6,
+  JSON.stringify({ pendingApplyPrice, storedAppliedTp }));
+
 // 清除止盈止损时理由一起清除
 await openLevelOf(id, 'sl');
 await page.click('#lpSlClear');

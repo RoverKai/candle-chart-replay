@@ -2472,6 +2472,9 @@
     book.onUpdate();      // 批量修改后统一刷新/落盘
     book.clearPendingLevel(levelCtx.id);
     levelCtx.undo = null; // 已点应用, 关闭时不再撤销拖动
+    // 仅修改理由/拖动后原样应用时 onUpdate 的防抖保存可能因签名未变而跳过;
+    // 这里立即落盘一次, 保证刚确认的待确认档位不会只存在内存里。
+    if (pane.tradesReady) writeTrades(pane);
     hint(msgs.length ? msgs.join('；') : '没有修改');
     closeLevelPanel();
   }

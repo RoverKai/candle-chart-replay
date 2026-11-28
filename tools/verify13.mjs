@@ -694,6 +694,47 @@ check('切回原窗格后交易面板恢复该窗格成交记录',
 await page.click('#layoutSwitch button[data-layout="1"]');
 await page.waitForTimeout(700);
 
+/* ============================================================ 7c. 回退后状态栏/交易面板跟随光标 */
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(16000));
+await page.waitForTimeout(300);
+await openPos(1);
+await page.waitForTimeout(250);
+const beforeBack = await page.evaluate(() => ({
+  cursor: window.KR.state.panes[0].cursor,
+  entryTime: window.KR.state.panes[0].book.positions[0].entryTime
+}));
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor - 5));
+await page.waitForTimeout(400);
+const afterBack = await page.evaluate(() => {
+  const p = window.KR.state.panes[0];
+  const b = p.book;
+  const c = p.cursor;
+  const bar = p.bars[c];
+  const total = p.bars.length;
+  return {
+    cursor: c,
+    barTime: bar.time,
+    entryTime: b.positions[0] ? b.positions[0].entryTime : null,
+    barPos: document.getElementById('barPos').textContent,
+    expectedBarPos: (c + 1).toLocaleString('en-US') + ' / ' + total.toLocaleString('en-US') + ' 根',
+    tpEntry: document.getElementById('tpEntryPrice').textContent,
+    expectedEntry: bar.close.toFixed(p.digits),
+    floating: +b.floating().toFixed(2),
+    posFl: (document.querySelector('#posBlock .pos-fl') || {}).textContent || '',
+    legend: document.getElementById('legend').textContent
+  };
+});
+check('回退 5 根后状态栏根数与光标一致',
+  afterBack.cursor === beforeBack.cursor - 5 && afterBack.barPos === afterBack.expectedBarPos,
+  JSON.stringify({ cursor: afterBack.cursor, barPos: afterBack.barPos }));
+check('回退到开仓前时交易面板浮盈归零且参考价跟随',
+  afterBack.entryTime === beforeBack.entryTime && afterBack.entryTime > afterBack.barTime &&
+    afterBack.floating === 0 && afterBack.posFl.trim() === '+0.00' &&
+    afterBack.tpEntry === afterBack.expectedEntry &&
+    afterBack.legend.includes(afterBack.expectedEntry),
+  JSON.stringify({ floating: afterBack.floating, posFl: afterBack.posFl, tpEntry: afterBack.tpEntry, expected: afterBack.expectedEntry }));
+
 /* ============================================================ 8. 截图 */
 if (await page.locator('#tradePanel').isHidden()) {
   await page.click('#btnTradePanel');

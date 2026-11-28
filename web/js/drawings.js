@@ -691,6 +691,22 @@
     this._disposed = true;
     this._syncStopped = true;
     if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; }
+    if (this._syncTimer) { clearTimeout(this._syncTimer); this._syncTimer = 0; }
+    if (this._onTimeRangeChange) {
+      try { this.chart.timeScale().unsubscribeVisibleLogicalRangeChange(this._onTimeRangeChange); } catch (e) { }
+      this._onTimeRangeChange = null;
+    }
+    if (this._onViewWheel) {
+      this.host.removeEventListener('wheel', this._onViewWheel);
+      this.host.removeEventListener('pointerdown', this._onViewDown);
+      this.host.removeEventListener('pointermove', this._onViewDrag);
+      this.host.removeEventListener('dblclick', this._onViewDown, true);
+      this._onViewWheel = this._onViewDown = this._onViewDrag = null;
+    }
+    if (this._onVisibility) {
+      document.removeEventListener('visibilitychange', this._onVisibility);
+      this._onVisibility = null;
+    }
     this.host.removeEventListener('mousedown', this._onDown, true);
     window.removeEventListener('mousemove', this._onMove, true);
     window.removeEventListener('mouseup', this._onUp, true);
@@ -1151,7 +1167,8 @@
   DrawingLayer.prototype.setInterceptor = function (obj) { this.interceptor = obj; };
 
   /* 平移/缩放/拖动价格轴都不会触发 mousemove, 必须自己盯住视图变化.
-     用 rAF 做一次廉价的签名比较, 变了才重绘 (每帧两次 API 调用, 可忽略). */
+     以前是每个窗格常驻 60fps 的 rAF 轮询, 4 窗格时每秒几百次签名比较;
+     现在视图变化优先走事件 (时间轴订阅 + 滚轮/拖拽), 200ms 轮询只做兜底. */
   DrawingLayer.prototype._viewSignature = function () {
     try {
       var r = this.chart.timeScale().getVisibleLogicalRange();
@@ -1175,16 +1192,53 @@
     this._syncStarted = true;
     var self = this;
     var last = null;
-    function tick() {
-      if (self._syncStopped) return;
-      var sig = self._viewSignature();
-      if (sig !== last) {
-        last = sig;
-        self.redraw();
+    var burstUntil = 0;
+
+    function check() {
+      if (self._disposed || self._syncStopped) return;
+      if (document.visibilityState !== 'hidden') {
+        var sig = self._viewSignature();
+        if (sig !== last) {
+          last = sig;
+          self.redraw();
+        }
       }
-      requestAnimationFrame(tick);
     }
-    requestAnimationFrame(tick);
+
+    function loop() {
+      if (self._disposed || self._syncStopped) return;
+      check();
+      // 拖动/滚轮后的惯性动画期间临时用 60fps 跟住, 静止后回到 200ms 兜底
+      var delay = performance.now() < burstUntil ? 16 : 200;
+      self._syncTimer = setTimeout(loop, delay);
+    }
+
+    function kick() {
+      burstUntil = performance.now() + 500;
+      self.requestRedraw();
+    }
+
+    // 时间轴变化 (拖动/缩放/程序化 setVisibleLogicalRange) 立即重绘
+    try {
+      self._onTimeRangeChange = function () { self.requestRedraw(); };
+      this.chart.timeScale().subscribeVisibleLogicalRangeChange(self._onTimeRangeChange);
+    } catch (e) { /* 老版本图表库没有该订阅时由轮询兜底 */ }
+
+    // 价格轴的拖动 / 滚轮缩放不会改变时间轴, 需要单独监听
+    this._onViewWheel = function () { kick(); };
+    this._onViewDrag = function (e) {
+      if (!e || e.buttons || (e.pointerType && e.pointerType !== 'mouse')) kick();
+    };
+    this._onViewDown = function () { kick(); };
+    this.host.addEventListener('wheel', this._onViewWheel, { passive: true });
+    this.host.addEventListener('pointerdown', this._onViewDown, { passive: true });
+    this.host.addEventListener('pointermove', this._onViewDrag, { passive: true });
+    this.host.addEventListener('dblclick', this._onViewDown, true);
+    // 后台标签页的定时器会被节流, 切回来时立刻补一次对齐
+    this._onVisibility = function () { if (document.visibilityState === 'visible') kick(); };
+    document.addEventListener('visibilitychange', this._onVisibility);
+
+    loop();
   };
 
   /* 键盘 */

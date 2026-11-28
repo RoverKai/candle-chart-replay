@@ -316,7 +316,29 @@
 
   /* ============================================================ 数据装载 */
 
-  function paneLoad(pane, period) {
+  /** 读取「账户+品种+周期」上次的播放位置; 无有效记录时返回 null */
+  function readSavedPosition() {
+    var raw = null;
+    try { raw = localStorage.getItem(posKey()); } catch (e) { return null; }
+    if (!raw) return null;
+    var data = null;
+    try { data = JSON.parse(raw); } catch (e) { return null; }
+    return data && data.cursor ? data : null;
+  }
+
+  /** 把游标直接放到保存的位置, 让首次全量渲染就渲染到正确长度 (省掉一次全量 setData) */
+  function applySavedCursorBeforeRender(pane, bars) {
+    var saved = readSavedPosition();
+    if (!saved) return;
+    var idx = lastIndexAtOrBefore(bars, saved.cursor);
+    if (idx < 0) idx = nearestIndex(pane, saved.cursor);
+    if (idx < 0 || idx >= bars.length - 1) return;   // 上次就在最新一根
+    pane.cursor = idx;
+    if (saved.start) state.startTime = saved.start;
+  }
+
+  function paneLoad(pane, period, opts) {
+    opts = opts || {};
     // 换周期前先回滚并同步落盘, 避免撤销写到新周期或被重新载入的旧存档覆盖
     flushLevelPanelForPane(pane);
     pane.period = period;
@@ -332,6 +354,7 @@
       pane.digits = res.digits;
       pane.cursor = bars.length - 1;
       pane.sessionStart = Math.max(0, bars.length - 1 - 500);
+      if (opts.restore && pane.index === 0) applySavedCursorBeforeRender(pane, bars);
       if (pane.index === 0) state.digits = res.digits;
 
       pane.candle.applyOptions({
@@ -339,6 +362,7 @@
       });
       pane.drawLayer.setDigits(res.digits);
 
+      pane.ind = {};
       computeIndicators(pane);
       paneBuildSeries(pane);
       paneApplyAll(pane, true);
@@ -386,7 +410,7 @@
     if (!pane || period === pane.period) { syncPeriodBar(pane); return; }
     var keepT = cutoffTime();
     var multi = state.panes.length > 1;
-    paneLoad(pane, period).then(function () {
+    paneLoad(pane, period, { restore: !multi && pane === p0() }).then(function () {
       if (!multi && pane === p0()) {
         // 单窗格: 回到该周期自己的记忆点 (没有就停在最新)
         if (!restorePosition()) setCutoff(cutoffTime());
@@ -433,18 +457,33 @@
     }
   }
 
-  function computeIndicators(pane) {
+  /** 当前开启的指标键; 只计算这些, 避免默认只开 MA20 却把 8 套指标全算一遍 */
+  function enabledIndicatorKeys() {
+    var keys = [];
+    MA_DEF.forEach(function (d) {
+      var on = d.key === 'boll' ? $('ind-boll').checked : $('ind-' + d.key).checked;
+      if (on) keys.push(d.key);
+    });
+    if (state.subMode === 'macd') keys.push('macd');
+    else if (state.subMode === 'rsi') keys.push('rsi');
+    return keys;
+  }
+
+  /** 按需计算指标; 已缓存的键直接复用, 关闭再打开不需要重算 */
+  function computeIndicators(pane, keys) {
     var b = pane.bars;
-    pane.ind = {
-      ma5: Indicators.sma(b, 5),
-      ma10: Indicators.sma(b, 10),
-      ma20: Indicators.sma(b, 20),
-      ma60: Indicators.sma(b, 60),
-      ema20: Indicators.ema(b, 20),
-      boll: Indicators.boll(b, 20, 2),
-      macd: Indicators.macd(b, 12, 26, 9),
-      rsi: Indicators.rsi(b, 14)
-    };
+    var ind = pane.ind || (pane.ind = {});
+    (keys || enabledIndicatorKeys()).forEach(function (key) {
+      if (ind[key]) return;
+      if (key === 'ma5') ind.ma5 = Indicators.sma(b, 5);
+      else if (key === 'ma10') ind.ma10 = Indicators.sma(b, 10);
+      else if (key === 'ma20') ind.ma20 = Indicators.sma(b, 20);
+      else if (key === 'ma60') ind.ma60 = Indicators.sma(b, 60);
+      else if (key === 'ema20') ind.ema20 = Indicators.ema(b, 20);
+      else if (key === 'boll') ind.boll = Indicators.boll(b, 20, 2);
+      else if (key === 'macd') ind.macd = Indicators.macd(b, 12, 26, 9);
+      else if (key === 'rsi') ind.rsi = Indicators.rsi(b, 14);
+    });
   }
 
   function applyVolumeVisibility(pane) {
@@ -573,6 +612,24 @@
     } catch (e) { /* ignore */ }
   }
 
+  /** 后退时从各 series 尾部增量删除, 避免为回退一根就重建整段数据.
+      返回 false 表示有 series 不支持 pop (或 pop 失败), 调用方退回 setData 兜底。 */
+  function panePopBars(pane, count) {
+    if (count <= 0) return true;
+    var ok = true;
+    var pop = function (s) {
+      if (!s) return;
+      if (typeof s.pop !== 'function') { ok = false; return; }
+      try { s.pop(count); } catch (e) { ok = false; }
+    };
+    pop(pane.candle);
+    pop(pane.volume);
+    Object.keys(pane.overlays).forEach(function (k) { pop(pane.overlays[k]); });
+    Object.keys(pane.subSeries).forEach(function (k) { pop(pane.subSeries[k]); });
+    if (pane.drawLayer) pane.drawLayer.requestRedraw();
+    return ok;
+  }
+
   function paneMoveTo(pane, idx, opts) {
     opts = opts || {};
     var total = pane.bars.length;
@@ -582,7 +639,13 @@
 
     var prev = pane.cursor;
     var delta = Math.abs(idx - prev);
-    if (prev >= 0 && idx > prev && idx - prev <= 12) {
+    if (prev >= 0 && idx < prev) {
+      // 回退: series.pop(k) 是 LWC 的增量删除, 代价远低于 setData(全量)
+      pane.cursor = idx;
+      if (!panePopBars(pane, prev - idx)) paneApplyAll(pane, true);
+      // 小幅回退保留视口; 大跨度回跳以新光标重新取景
+      if (delta > 12) paneFocus(pane);
+    } else if (prev >= 0 && idx > prev && idx - prev <= 12) {
       for (var i = prev + 1; i <= idx; i++) {
         pane.cursor = i;
         paneApplyAll(pane, false);
@@ -1047,7 +1110,7 @@
       buildPeriodBar();
       var pane = createPane(0);
       state.panes.push(pane);
-      paneLoad(pane, period).then(function () {
+      paneLoad(pane, period, { restore: true }).then(function () {
         restorePosition();
         updateStatus();
         setActivePanels();
@@ -1063,7 +1126,7 @@
     buildPeriodBar();
     var chain = Promise.resolve();
     state.panes.forEach(function (p) {
-      chain = chain.then(function () { return paneLoad(p, p.period); });
+      chain = chain.then(function () { return paneLoad(p, p.period, { restore: p.index === 0 }); });
     });
     chain.then(function () {
       restorePosition();     // 主窗格回到该品种周期自己的记忆点
@@ -1482,6 +1545,7 @@
     if (raw) { try { data = JSON.parse(raw); } catch (e) { data = null; } }
     pane.book.restore(data);
     pane.tradesReady = true;
+    pane.tradeUiSig = '';          // 换周期/重载后强制重建交易面板
     tradeSigMap[pane.index] = tradeSig(pane);
   }
 
@@ -1517,12 +1581,8 @@
   }
 
   function restorePosition() {
-    var raw = null;
-    try { raw = localStorage.getItem(posKey()); } catch (e) { return false; }
-    if (!raw) return false;
-    var data = null;
-    try { data = JSON.parse(raw); } catch (e) { return false; }
-    if (!data || !data.cursor) return false;
+    var data = readSavedPosition();
+    if (!data) return false;
 
     var d = driverPane();
     if (!d || !d.bars.length) return false;
@@ -1650,6 +1710,49 @@
     hint(state.showHistory ? '已显示历史仓位' : '已隐藏历史仓位');
   }
 
+  /** 交易面板的结构签名: 只有这些内容变化时才需要重建 DOM, 浮盈随 K 线变化不在此列 */
+  function tradeUiSig(pane) {
+    var book = pane.book;
+    if (!book) return '';
+    var parts = [pane.index, pane.digits, book.activePosId || '-', book.oco ? 1 : 0];
+    book.positions.forEach(function (p) {
+      parts.push([p.id, p.no, p.dir, p.lots, p.entryPrice, p.entryTime,
+        p.sl, p.slLots, p.tp, p.tpLots].join(':'));
+    });
+    parts.push('|');
+    book.orders.forEach(function (o) {
+      parts.push([o.id, o.type, o.price, o.lots, o.oco ? 1 : 0].join(':'));
+    });
+    parts.push('|' + book.trades.length + ':' +
+      (book.trades.length ? book.trades[book.trades.length - 1].id : ''));
+    return parts.join(',');
+  }
+
+  /** 结构未变时只刷新浮动盈亏; DOM 与数据对不上则返回 false, 让调用方退回整块重建 */
+  function updateTradeFloating(pane) {
+    var book = pane.book;
+    var positions = book.positions;
+    if (!positions.length) return true;
+    var box = $('posBlock');
+    var items = box.querySelectorAll('.pos-item');
+    if (items.length !== positions.length) return false;
+    var total = 0;
+    for (var i = 0; i < items.length; i++) {
+      var pos = book._posById(items[i].dataset.id);
+      var el = items[i].querySelector('.pos-fl');
+      if (!pos || !el) return false;
+      var fl = book.floatingOf(pos);
+      total += fl;
+      el.textContent = money(fl);
+      el.className = 'pos-fl ' + (fl >= 0 ? 'up' : 'down');
+    }
+    var totalEl = box.querySelector('.pos-pnl');
+    if (!totalEl) return false;
+    totalEl.textContent = money(total);
+    totalEl.className = 'pos-pnl ' + (total >= 0 ? 'up' : 'down');
+    return true;
+  }
+
   function renderTradePanel() {
     var pane = activePane();
     if (!pane || !pane.book) return;
@@ -1664,6 +1767,10 @@
     $('btnSell').disabled = !bar;
     $('tpEntryPrice').textContent = bar ? bar.close.toFixed(dg) : '';
     $('ocoInput').checked = !!book.oco;
+
+    var sig = tradeUiSig(pane);
+    if (sig === pane.tradeUiSig && updateTradeFloating(pane)) return;
+    pane.tradeUiSig = sig;
 
     var posBox = $('posBlock');
     if (positions.length) {
@@ -2430,7 +2537,10 @@
   }
 
   function rebuildIndicatorSeries() {
+    // 新打开的指标可能是第一次用到, 先把缺失的算出来再建 series
+    var keys = enabledIndicatorKeys();
     state.panes.forEach(function (p) {
+      computeIndicators(p, keys);
       var r = null;
       try { r = p.chart.timeScale().getVisibleLogicalRange(); } catch (e) { }
       paneBuildSeries(p);

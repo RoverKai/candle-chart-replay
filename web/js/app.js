@@ -1710,6 +1710,9 @@
     hint(state.showHistory ? '已显示历史仓位' : '已隐藏历史仓位');
   }
 
+  /** 交易面板是所有窗格共用的 DOM: 记录当前渲染的是哪个窗格, 切窗格时必须重建 */
+  var tradePanelPane = null;
+
   /** 交易面板的结构签名: 只有这些内容变化时才需要重建 DOM, 浮盈随 K 线变化不在此列 */
   function tradeUiSig(pane) {
     var book = pane.book;
@@ -1769,8 +1772,9 @@
     $('ocoInput').checked = !!book.oco;
 
     var sig = tradeUiSig(pane);
-    if (sig === pane.tradeUiSig && updateTradeFloating(pane)) return;
+    if (tradePanelPane === pane && sig === pane.tradeUiSig && updateTradeFloating(pane)) return;
     pane.tradeUiSig = sig;
+    tradePanelPane = pane;
 
     var posBox = $('posBlock');
     if (positions.length) {

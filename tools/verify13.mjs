@@ -652,6 +652,45 @@ await page.waitForTimeout(300);
 const paneCounts = await page.evaluate(() => window.KR.state.panes.map((p) => p.book.positions.length));
 check('两个窗格的持仓互不影响', paneCounts.length === 2 && paneCounts[0] === 1 && paneCounts[1] === 1,
   JSON.stringify(paneCounts));
+
+/* ============================================================ 7b. 切窗格后交易面板不串数据 */
+await page.click('#layoutSwitch button[data-layout="1"]');
+await page.waitForTimeout(700);
+await resetBook();
+await page.evaluate(() => window.KR.api.setCursor(16000));
+await page.waitForTimeout(300);
+await openPos(1);
+await page.evaluate(() => { window.KR.book.close('测试'); });
+await page.waitForTimeout(300);
+const panelTradeCount0 = await page.evaluate(() => document.querySelectorAll('#tradeList .trade-item').length);
+await page.click('#layoutSwitch button[data-layout="2"]');
+await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0,
+  { timeout: 20000 });
+await page.waitForTimeout(500);
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.panes[1].bars.length - 1));
+await page.waitForTimeout(400);
+const clickPane = async (idx) => {
+  const pt = await page.evaluate((i) => {
+    const r = window.KR.state.panes[i].els.wrap.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  }, idx);
+  await page.mouse.click(pt.x, pt.y);
+  await page.waitForTimeout(350);
+};
+await clickPane(1);
+const panelDuringOther = await page.evaluate(() => ({
+  active: window.KR.state.activeIndex,
+  trades: document.querySelectorAll('#tradeList .trade-item').length
+}));
+await clickPane(0);
+const panelBack = await page.evaluate(() => ({
+  active: window.KR.state.activeIndex,
+  trades: document.querySelectorAll('#tradeList .trade-item').length
+}));
+check('切回原窗格后交易面板恢复该窗格成交记录',
+  panelTradeCount0 === 1 && panelDuringOther.active === 1 && panelDuringOther.trades === 0 &&
+    panelBack.active === 0 && panelBack.trades === 1,
+  JSON.stringify({ panelTradeCount0, panelDuringOther, panelBack }));
 await page.click('#layoutSwitch button[data-layout="1"]');
 await page.waitForTimeout(700);
 

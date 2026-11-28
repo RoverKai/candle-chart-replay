@@ -15,6 +15,24 @@ await page.waitForTimeout(900);
 const ok = [], bad = [];
 const check = (name, cond, extra = '') => (cond ? ok : bad).push(`${name}${extra ? ' :: ' + extra : ''}`);
 
+// 窗格外观契约: 直角、无边框, 图表铺满; 仅多窗格的活动窗格有贴顶高亮条
+const paneFrames = () => page.evaluate(() => Array.from(document.querySelectorAll('.pane')).map((pane) => {
+  const wrap = pane.querySelector('.chart-wrap');
+  const pr = pane.getBoundingClientRect();
+  const wr = wrap.getBoundingClientRect();
+  const cs = getComputedStyle(pane);
+  const after = getComputedStyle(wrap, '::after');
+  return {
+    active: pane.classList.contains('active'),
+    border: cs.borderTopWidth,
+    radius: cs.borderTopLeftRadius,
+    fill: Math.abs(pr.width - wr.width) < 0.5 && Math.abs(pr.height - wr.height) < 0.5,
+    bar: after.content !== 'none' && after.content !== 'normal',
+    barColor: after.backgroundColor,
+    barHeight: after.height
+  };
+}));
+
 const snap = () => page.evaluate(() => ({
   driver: (function () {
     var ds = window.KR.state.panes.filter(function (p) { return p.bars.length; });
@@ -61,6 +79,12 @@ let s = await snap();
 check('初始只有 1 个窗格', (await page.locator('.pane').count()) === 1, `M${s.panes[0].period}`);
 check('初始视角无回放角标', await page.isHidden('#replayBadge'));
 
+let paneFrame = await paneFrames();
+check('单窗格为直角无边框且图表铺满',
+  paneFrame[0].border === '0px' && paneFrame[0].radius === '0px' && paneFrame[0].fill,
+  JSON.stringify(paneFrame[0]));
+check('单窗格不显示活动高亮条', paneFrame[0].bar === false, JSON.stringify(paneFrame[0]));
+
 // ---- 2. 两窗格 M5 + M1
 await page.click('#layoutSwitch button[data-layout="2"]');
 await page.waitForFunction(() => window.KR.state.panes.length === 2 && window.KR.state.panes[1].bars.length > 0, { timeout: 20000 });
@@ -70,6 +94,13 @@ s = await snap();
 check('出现 2 个窗格', (await page.locator('.pane').count()) === 2);
 check('第二窗格自动取 M1', s.panes[1].period === 1, `M${s.panes[1].period}`);
 check('驱动窗格是最小周期', s.driver && s.driver.period === 1, `driver=M${s.driver && s.driver.period}`);
+
+paneFrame = await paneFrames();
+check('双窗格均为直角无边框且仅活动窗格有顶部高亮条',
+  paneFrame.every((f) => f.border === '0px' && f.radius === '0px' && f.fill) &&
+  paneFrame[0].active && paneFrame[0].bar && paneFrame[0].barColor === 'rgb(41, 98, 255)' &&
+  paneFrame[0].barHeight === '2px' && !paneFrame[1].bar,
+  JSON.stringify(paneFrame));
 
 // 回退一小段，留出推进空间
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.panes[1].cursor - 50));
@@ -314,6 +345,10 @@ const paneCenters = await page.evaluate(() => window.KR.state.panes.map(function
 }));
 await page.mouse.click(paneCenters[1].x, paneCenters[1].y);
 await page.waitForTimeout(200);
+paneFrame = await paneFrames();
+check('切换活动窗格后高亮条跟随',
+  paneFrame[1].active && paneFrame[1].bar && !paneFrame[0].bar,
+  JSON.stringify(paneFrame));
 await page.mouse.click(paneCenters[0].x, paneCenters[0].y);
 await page.waitForTimeout(300);
 const activePeriodVisible = () => page.evaluate(() => {

@@ -1877,20 +1877,29 @@ body.resizing-col * { cursor: row-resize !important; }
 body.ft-dragging,
 body.ft-dragging * { cursor: grabbing !important; user-select: none !important; }
 
+/* 直角无边: K 线直接铺在父容器里, 不再使用圆角卡片外壳 */
 .pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   background: var(--chart-bg, #131722);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
 }
 
-.pane.active {
-  border-color: rgba(41, 98, 255, .55);
-  box-shadow: 0 0 0 1px rgba(41, 98, 255, .18);
+/* 多窗格时用贴顶的直角高亮条标记活动窗格; 单窗格不需要额外装饰 */
+.chart-grid:not([data-layout="1"]) .pane.active .chart-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent, #2962ff);
+  z-index: 5;
+  pointer-events: none;
 }
 
 .draw-layer {

@@ -433,7 +433,12 @@ try {
     pane.book.open(1, { lots: 0.1, contract: 100, sl: bar.close - 20, tp: bar.close + 20 });
     pane.drawLayer.requestRedraw();
   });
-  await page.waitForTimeout(350);
+  // 等这次 rAF 绘制真正跑到持仓按钮上, 避免高负载下固定等待不够
+  await page.waitForFunction(() => {
+    const pane = window.KR.state.panes[0];
+    return pane && pane.book && pane.book._slBtn && pane.book._tpBtn;
+  }, { timeout: 5000 });
+  await page.waitForTimeout(80);
   const lightPills = await page.evaluate(() => {
     const pane = window.KR.state.panes[0];
     const canvas = document.getElementById('drawLayer');

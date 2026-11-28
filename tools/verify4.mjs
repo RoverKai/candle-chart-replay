@@ -52,6 +52,7 @@ check('缩放视图自动重绘', after2 > before2, `redraw ${before2} -> ${afte
 // ---- 2. 右键菜单
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor - 120));
 await page.waitForTimeout(300);
+await page.fill('#entryReason', '右键市价做多理由');
 await page.mouse.click(...P(0.45, 0.45), { button: 'right' });
 await page.waitForTimeout(250);
 
@@ -68,12 +69,13 @@ check('菜单市价买入成功', st.pos === true, JSON.stringify(st));
 check('菜单已关闭', !(await page.isVisible('#ctxMenu')));
 
 // 平仓并跳到数据中段（保证后面有足够 K 线可以走）
-await page.evaluate(() => window.KR.api.close());
+await page.evaluate(() => window.KR.api.close('右键市价平仓理由'));
 await page.evaluate(() => { window.KR.book.cancelAllOrders(); window.KR.api.setCursor(8000); });
 await page.waitForTimeout(400);
 
 // ---- 4. 挂单：买入限价（点在现价下方）
 const closeNow = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
+await page.fill('#entryReason', '回踩支撑挂多理由');
 await page.mouse.click(...P(0.55, 0.72), { button: 'right' });
 await page.waitForTimeout(250);
 await page.locator('.ctx-item', { hasText: '买入限价' }).click();
@@ -98,7 +100,7 @@ check('限价单触发成交', st.pos === true && st.orders === 0, JSON.stringif
 check('成交价不高于挂单价', pos && pos.entryPrice <= order.price + 1e-9,
   pos ? `${pos.entryPrice.toFixed(2)} <= ${order.price.toFixed(2)}` : 'null');
 
-await page.evaluate(() => window.KR.api.close());
+await page.evaluate(() => window.KR.api.close('限价单成交后平仓'));
 await page.evaluate(() => { window.KR.book.cancelAllOrders(); window.KR.api.setCursor(12000); });
 await page.waitForTimeout(400);
 
@@ -106,8 +108,8 @@ await page.waitForTimeout(400);
 const c2 = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
 await page.evaluate((c) => {
   const b = window.KR.book;
-  b.placeOrder('buy_limit', c - 3, { lots: 0.1, contract: 100 });
-  b.placeOrder('sell_limit', c + 3, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 3, { lots: 0.1, contract: 100, entryReason: '多单限价理由' });
+  b.placeOrder('sell_limit', c + 3, { lots: 0.1, contract: 100, entryReason: '空单限价理由' });
 }, c2);
 await page.waitForTimeout(300);
 st = await state();
@@ -123,12 +125,12 @@ st = await state();
 check('一张挂单成交', st.pos === true, JSON.stringify(st));
 check('成交后其余挂单保留', st.orders === 1, JSON.stringify(st));
 
-await page.evaluate(() => window.KR.api.close());
+await page.evaluate(() => window.KR.api.close('独立挂单成交后平仓'));
 await page.evaluate(() => window.KR.book.cancelAllOrders());
 await page.waitForTimeout(250);
 
 // ---- 7. 面板取消挂单
-await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 5, { lots: 0.1, contract: 100 }), c2);
+await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 5, { lots: 0.1, contract: 100, entryReason: '面板取消挂单理由' }), c2);
 await page.waitForTimeout(300);
 let beforeCancel = await state();
 check('取消前有挂单', beforeCancel.orders >= 1, JSON.stringify(beforeCancel));
@@ -138,7 +140,7 @@ st = await state();
 check('面板取消挂单', st.orders === beforeCancel.orders - 1, `${beforeCancel.orders} -> ${st.orders}`);
 
 // ---- 8. 挂单持久化
-await page.evaluate((c) => window.KR.book.placeOrder('buy_stop', c + 8, { lots: 0.1, contract: 100 }), c2);
+await page.evaluate((c) => window.KR.book.placeOrder('buy_stop', c + 8, { lots: 0.1, contract: 100, entryReason: '挂单持久化理由' }), c2);
 await page.waitForTimeout(400);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });

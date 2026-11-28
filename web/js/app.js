@@ -289,6 +289,7 @@
   function destroyPane(pane) {
     if (styleCtx && styleCtx.pane === pane) closeStylePanel();
     flushLevelPanelForPane(pane);
+    if (closeReasonCtx && closeReasonCtx.pane === pane) closeReasonDialog();
     cancelTradeSave(pane);
     if (pane.resizeObserver) {
       pane.resizeObserver.disconnect();
@@ -303,6 +304,7 @@
     if (state.activeIndex === index) return;
     closeStylePanel();
     closeLevelPanel();
+    closeReasonDialog();
     state.activeIndex = index;
     state.panes.forEach(function (p) {
       p.els.section.classList.toggle('active', p.index === index);
@@ -341,6 +343,8 @@
     opts = opts || {};
     // 换周期前先回滚并同步落盘, 避免撤销写到新周期或被重新载入的旧存档覆盖
     flushLevelPanelForPane(pane);
+    closeReasonDialog();
+    clearEntryDraft();
     pane.period = period;
     var url = '/api/bars?server=' + encodeURIComponent(state.serverId) +
       '&symbol=' + encodeURIComponent(state.symbol) + '&period=' + period;
@@ -1127,6 +1131,8 @@
   function reloadAll() {
     if (!state.panes.length) return;
     if (levelCtx) flushLevelPanelForPane(levelCtx.pane);
+    closeReasonDialog();
+    clearEntryDraft();
     buildPeriodBar();
     var chain = Promise.resolve();
     state.panes.forEach(function (p) {
@@ -1502,17 +1508,65 @@
   var tradeSaveTimers = {};
   var tradeSigMap = {};
   var levelCtx = null;        // { pane, id }: 正在编辑的持仓止盈/止损
+  var closeReasonCtx = null;  // { pane, mode: 'one'|'all', id }: 正在填写理由的平仓操作
   var LEVEL_LABEL = { sl: '止损', tp: '止盈' };
+
+  /** 理由输入框的通用清洗: 去首尾空白、折叠空白、限制 500 字 */
+  function reasonText(el) {
+    if (!el) return '';
+    var s = String(el.value == null ? '' : el.value).replace(/\s+/g, ' ').trim();
+    return s.length > 500 ? s.slice(0, 500) : s;
+  }
+
+  function markNeed(el) {
+    if (!el) return;
+    el.classList.add('need');
+    try { el.focus(); } catch (e) { }
+  }
+
+  function clearNeed(el) {
+    if (el) el.classList.remove('need');
+  }
+
+  /** 开仓理由草稿不跨品种 / 周期复用 */
+  function clearEntryDraft() {
+    var el = $('entryReason');
+    if (el) el.value = '';
+    ['slReasonInput', 'tpReasonInput'].forEach(function (id) {
+      var n = $(id);
+      if (n) { n.value = ''; clearNeed(n); }
+    });
+    clearNeed($('entryReason'));
+  }
+
+  function setTradePanelOpen(on, focusReason) {
+    var panel = $('tradePanel');
+    if (!panel) return;
+    panel.hidden = !on;
+    $('btnTradePanel').classList.toggle('on', !!on);
+    if (on && focusReason) {
+      var el = $('entryReason');
+      if (el) setTimeout(function () { try { el.focus(); } catch (e) { } }, 0);
+    }
+    setTimeout(resizeLayers, 40);
+  }
 
   function tradeSig(pane) {
     var b = pane.book;
     if (!b) return '';
     var posSig = b.positions.map(function (p) {
-      return p.id + ':' + p.lots + ':' + p.sl + ':' + p.slLots + ':' + p.tp + ':' + p.tpLots;
-    }).join(',');
-    return (b.activePosId || '-') + '|' + posSig + '|' + b.trades.length + '|' +
-      (b.trades.length ? b.trades[b.trades.length - 1].id : '') + '|' +
-      b.orders.map(function (o) { return o.id + ':' + (o.oco ? 1 : 0) + (o.ocoLegacy ? 'L' : ''); }).join(',');
+      return [p.id, p.lots, p.sl, p.slLots, p.tp, p.tpLots,
+        p.entryReason || '', p.slReason || '', p.tpReason || ''];
+    });
+    var orderSig = b.orders.map(function (o) {
+      return [o.id, o.oco ? 1 : 0, o.ocoLegacy ? 'L' : '', o.entryReason || ''];
+    });
+    var last = b.trades.length ? b.trades[b.trades.length - 1] : null;
+    // 用 JSON 组合, 避免理由里含分隔符时签名碰撞
+    return JSON.stringify([
+      b.activePosId || '-', posSig, orderSig, b.trades.length,
+      last ? last.id : '', last ? (last.exitReason || '') : ''
+    ]);
   }
 
   function cancelTradeSave(pane) {
@@ -1724,14 +1778,16 @@
     var parts = [pane.index, pane.digits, book.activePosId || '-', book.oco ? 1 : 0];
     book.positions.forEach(function (p) {
       parts.push([p.id, p.no, p.dir, p.lots, p.entryPrice, p.entryTime,
-        p.sl, p.slLots, p.tp, p.tpLots].join(':'));
+        p.sl, p.slLots, p.tp, p.tpLots,
+        p.entryReason || '', p.slReason || '', p.tpReason || ''].join(':'));
     });
     parts.push('|');
     book.orders.forEach(function (o) {
-      parts.push([o.id, o.type, o.price, o.lots, o.oco ? 1 : 0].join(':'));
+      parts.push([o.id, o.type, o.price, o.lots, o.oco ? 1 : 0, o.entryReason || ''].join(':'));
     });
     parts.push('|' + book.trades.length + ':' +
-      (book.trades.length ? book.trades[book.trades.length - 1].id : ''));
+      (book.trades.length ? book.trades[book.trades.length - 1].id : '') + ':' +
+      (book.trades.length ? (book.trades[book.trades.length - 1].exitReason || '') : ''));
     return parts.join(',');
   }
 
@@ -1758,6 +1814,16 @@
     totalEl.textContent = money(total);
     totalEl.className = 'pos-pnl ' + (total >= 0 ? 'up' : 'down');
     return true;
+  }
+
+  /** 持仓卡片里的理由行; clickable=true 时点击打开该笔的止盈止损设置 */
+  function posReasonRow(label, value, clickable) {
+    var txt = String(value == null ? '' : value);
+    var full = label + '：' + (txt || '未填写');
+    return '<div class="pos-row pos-why' + (clickable ? ' pos-levels' : '') + '" title="' + esc(full) + '">' +
+      '<span class="k">' + label + '</span>' +
+      '<span class="v' + (txt ? '' : ' empty') + '">' + esc(txt || '未填写') + '</span>' +
+      '</div>';
   }
 
   function renderTradePanel() {
@@ -1810,16 +1876,19 @@
             '</div>' +
             '<div class="pos-row"><span class="k">开仓</span><span class="v">' + p.entryPrice.toFixed(dg) +
               ' · ' + fmtTime(p.entryTime).slice(5) + '</span></div>' +
+            posReasonRow('入场理由', p.entryReason, false) +
             '<div class="pos-row pos-levels" title="点击设置止损价格和手数">' +
               '<span class="k">止损 SL</span>' +
               '<span class="v"><span class="sl">' + slTxt + '</span></span>' +
               '<span class="pos-edit">设置</span>' +
             '</div>' +
+            (p.sl != null ? posReasonRow('止损理由', p.slReason, true) : '') +
             '<div class="pos-row pos-levels" title="点击设置止盈价格和手数">' +
               '<span class="k">止盈 TP</span>' +
               '<span class="v"><span class="tp">' + tpTxt + '</span></span>' +
               '<span class="pos-edit">设置</span>' +
             '</div>' +
+            (p.tp != null ? posReasonRow('止盈理由', p.tpReason, true) : '') +
             '</div>';
         }).join('') +
         '<div class="pos-actions">' +
@@ -1863,10 +1932,14 @@
         '<div class="tp-list" id="ordersList">' +
         book.orders.map(function (o) {
           var isBuy = (o.type === 'buy_limit' || o.type === 'buy_stop');
-          return '<div class="order-item">' +
+          var why = String(o.entryReason || '');
+          return '<div class="order-item" title="入场理由：' + esc(why || '未填写') + '">' +
+            '<div class="order-main">' +
             '<span class="' + (isBuy ? 'type-buy' : 'type-sell') + '">' + ORDER_LABELS[o.type] + '</span>' +
             '<span class="px">' + o.price.toFixed(dg) + ' · ' + o.lots + '手' + (o.oco ? ' · OCO' : '') + '</span>' +
             '<button class="cancel" data-id="' + o.id + '" title="取消">×</button>' +
+            '</div>' +
+            '<div class="order-why' + (why ? '' : ' empty') + '">理由：' + esc(why || '未填写') + '</div>' +
             '</div>';
         }).join('') +
         '</div>';
@@ -1906,10 +1979,18 @@
     } else {
       list.innerHTML = book.trades.slice().reverse().map(function (t) {
         var isLong = t.dir === 1;
-        return '<div class="trade-item" data-id="' + t.id + '">' +
+        var entryWhy = String(t.entryReason || '');
+        var exitWhy = String(t.exitReason || t.reason || '');
+        var title = '入场理由：' + (entryWhy || '未填写') +
+          ' · 平仓理由：' + (exitWhy || '未填写') +
+          ' · 平仓原因：' + (t.reason || '—');
+        return '<div class="trade-item" data-id="' + t.id + '" title="' + esc(title) + '">' +
+          '<div class="trade-main">' +
           '<span class="dir ' + (isLong ? 'long' : 'short') + '">' + (isLong ? '多' : '空') + ' ' + t.lots + '</span>' +
           '<span class="px">' + t.entryPrice.toFixed(dg) + ' → ' + t.exitPrice.toFixed(dg) + '</span>' +
           '<span class="pnl ' + (t.pnl >= 0 ? 'up' : 'down') + '">' + money(t.pnl) + '</span>' +
+          '</div>' +
+          '<div class="trade-why' + (exitWhy ? '' : ' empty') + '">平：' + esc(exitWhy || '未填写') + '</div>' +
           '</div>';
       }).join('');
     }
@@ -1924,24 +2005,187 @@
     if (!pane || !pane.book) return;
     if (!pane.bars.length || !pane.bars[pane.cursor]) { hint('还没有数据'); return; }
 
-    var lots = parseFloat($('lotsInput').value);
-    var contract = parseFloat($('contractInput').value);
+    var entryEl = $('entryReason');
+    var entryReason = reasonText(entryEl);
+    if (!entryReason) {
+      setTradePanelOpen(true, true);
+      markNeed(entryEl);
+      hint('请先填写入场理由');
+      return;
+    }
+
     var sl = parseFloat($('slInput').value);
     var tp = parseFloat($('tpTargetInput').value);
+    var slReasonEl = $('slReasonInput');
+    var tpReasonEl = $('tpReasonInput');
+    var slReason = reasonText(slReasonEl);
+    var tpReason = reasonText(tpReasonEl);
+    if (isFinite(sl) && !slReason) {
+      setTradePanelOpen(true);
+      markNeed(slReasonEl);
+      hint('设置止损需填写止损理由');
+      return;
+    }
+    if (isFinite(tp) && !tpReason) {
+      setTradePanelOpen(true);
+      markNeed(tpReasonEl);
+      hint('设置止盈需填写止盈理由');
+      return;
+    }
+
+    var lots = parseFloat($('lotsInput').value);
+    var contract = parseFloat($('contractInput').value);
 
     pane.book.setLots(isFinite(lots) && lots > 0 ? lots : 0.1);
     pane.book.setContract(isFinite(contract) && contract > 0 ? contract : 100);
 
-    pane.book.open(dir, {
+    var pos = pane.book.open(dir, {
       lots: pane.book.lots,
       contract: pane.book.contract,
       sl: isFinite(sl) ? sl : null,
-      tp: isFinite(tp) ? tp : null
+      tp: isFinite(tp) ? tp : null,
+      entryReason: entryReason,
+      slReason: slReason,
+      tpReason: tpReason
     });
+    if (!pos) return;
 
+    // 每笔重新写理由: 成功后清空, 避免下一笔沿用上一笔的理由
+    entryEl.value = '';
     $('slInput').value = '';
     $('tpTargetInput').value = '';
+    slReasonEl.value = '';
+    tpReasonEl.value = '';
+    clearNeed(entryEl);
+    clearNeed(slReasonEl);
+    clearNeed(tpReasonEl);
     if (pane.drawLayer) pane.drawLayer.requestRedraw();
+  }
+
+  /** 右键挂单入口: 与市价开仓共用交易面板里的「入场理由」 */
+  function placePendingOrder(type, price) {
+    var pane = activePane();
+    if (!pane || !pane.book) return null;
+    var entryEl = $('entryReason');
+    var entryReason = reasonText(entryEl);
+    if (!entryReason) {
+      setTradePanelOpen(true, true);
+      markNeed(entryEl);
+      hint('请先填写入场理由');
+      return null;
+    }
+    var order = pane.book.placeOrder(type, price, {
+      lots: pane.book.lots,
+      contract: pane.book.contract,
+      oco: pane.book.oco,
+      entryReason: entryReason
+    });
+    if (order) {
+      entryEl.value = '';
+      clearNeed(entryEl);
+    }
+    if (pane.drawLayer) pane.drawLayer.requestRedraw();
+    return order;
+  }
+
+  /* ============================================================ 平仓理由弹窗 */
+
+  function closeReasonDialog() {
+    closeReasonCtx = null;
+    var dialog = $('reasonDialog');
+    if (dialog) dialog.hidden = true;
+    var err = $('reasonError');
+    if (err) err.textContent = '';
+    clearNeed($('reasonText'));
+  }
+
+  function openCloseReasonDialog(pane, mode, id) {
+    if (!pane || !pane.book) return;
+    var book = pane.book;
+    var pos = mode === 'one' ? book._posById(id) : null;
+    if (mode === 'one' && !pos) return;
+    if (mode === 'all' && !book.positions.length) { hint('当前没有持仓'); return; }
+
+    if (state.activeIndex !== pane.index) setActive(pane.index);
+    stopPlay();
+    closeLevelPanel();
+    closeReasonDialog();
+
+    var title = mode === 'all' ? '全部平仓理由' : '平仓理由';
+    var sub = '';
+    var context = '';
+    if (mode === 'one') {
+      var closePx = book.currentClose();
+      sub = levelPosText(pane, pos) + ' · 现价 ' + (closePx == null ? '—' : closePx.toFixed(pane.digits)) +
+        ' · 浮盈 ' + money(book.floatingOf(pos));
+      if (pos.entryReason) context = '入场理由：' + pos.entryReason;
+    } else {
+      sub = '将平掉 ' + book.positions.length + ' 笔持仓，合计浮盈 ' + money(book.floating()) +
+        '；本条理由会记入每一笔成交记录。';
+    }
+
+    $('reasonTitle').textContent = title;
+    $('reasonSub').textContent = sub;
+    $('reasonContext').textContent = context;
+    $('reasonText').value = '';
+    $('reasonError').textContent = '';
+    $('reasonConfirm').textContent = mode === 'all' ? '全部平仓' : '确认平仓';
+    clearNeed($('reasonText'));
+
+    closeReasonCtx = { pane: pane, mode: mode, id: id };
+    var dialog = $('reasonDialog');
+    if (dialog) dialog.hidden = false;
+    setTimeout(function () {
+      if (!closeReasonCtx) return;
+      var el = $('reasonText');
+      if (el) { try { el.focus(); } catch (e) { } }
+    }, 0);
+  }
+
+  function performCloseOne(pane, id, reason) {
+    if (!pane || !pane.book) return null;
+    var pos = pane.book._posById(id);
+    if (!pos) return null;
+    var t = pane.book.closePosition(id, '手动平仓', reason);
+    if (t) {
+      hint('平仓 #' + (pos.no || '') + ' @ ' + t.exitPrice.toFixed(pane.digits) + '  盈亏 ' + money(t.pnl) +
+        (pane.book.positions.length ? '（还剩 ' + pane.book.positions.length + ' 单）' : ''));
+      if (pane.drawLayer) pane.drawLayer.requestRedraw();
+    }
+    return t;
+  }
+
+  function performCloseAll(pane, reason) {
+    if (!pane || !pane.book) return [];
+    if (!pane.book.positions.length) { hint('当前没有持仓'); return []; }
+    var closed = pane.book.closeAll('全部平仓', reason);
+    if (!closed.length) return [];
+    var sum = 0;
+    closed.forEach(function (t) { sum += t.pnl; });
+    hint('已平掉 ' + closed.length + ' 单，合计 ' + money(sum));
+    if (pane.drawLayer) pane.drawLayer.requestRedraw();
+    return closed;
+  }
+
+  function confirmCloseReason() {
+    if (!closeReasonCtx) return;
+    var ctx = closeReasonCtx;
+    var pane = ctx.pane;
+    var book = pane && pane.book;
+    var why = reasonText($('reasonText'));
+    if (!why) {
+      $('reasonError').textContent = '请填写平仓理由';
+      markNeed($('reasonText'));
+      return;
+    }
+    if (!book) { closeReasonDialog(); return; }
+    closeReasonDialog();
+    if (ctx.mode === 'one') {
+      if (!book._posById(ctx.id)) { hint('这笔持仓已经不在了'); return; }
+      performCloseOne(pane, ctx.id, why);
+    } else {
+      performCloseAll(pane, why);
+    }
   }
 
   function doClose() {
@@ -1949,43 +2193,56 @@
     if (!pane || !pane.book) return;
     var pos = pane.book.activePosition();
     if (!pos) { hint('当前没有持仓'); return; }
-    var t = pane.book.close('手动平仓');
-    if (t) {
-      hint('平仓 #' + (pos.no || '') + ' @ ' + t.exitPrice.toFixed(pane.digits) + '  盈亏 ' + money(t.pnl) +
-        (pane.book.positions.length ? '（还剩 ' + pane.book.positions.length + ' 单）' : ''));
-      if (pane.drawLayer) pane.drawLayer.requestRedraw();
-    }
+    openCloseReasonDialog(pane, 'one', pos.id);
   }
 
   function doCloseOne(id) {
     var pane = activePane();
     if (!pane || !pane.book) return;
-    var pos = pane.book.positions.filter(function (p) { return p.id === id; })[0];
+    var pos = pane.book._posById(id);
     if (!pos) return;
-    var t = pane.book.closePosition(id, '手动平仓');
-    if (t) {
-      hint('平仓 #' + (pos.no || '') + ' @ ' + t.exitPrice.toFixed(pane.digits) + '  盈亏 ' + money(t.pnl) +
-        (pane.book.positions.length ? '（还剩 ' + pane.book.positions.length + ' 单）' : ''));
-      if (pane.drawLayer) pane.drawLayer.requestRedraw();
-    }
+    openCloseReasonDialog(pane, 'one', id);
   }
 
   function doCloseAll() {
     var pane = activePane();
     if (!pane || !pane.book) return;
     if (!pane.book.positions.length) { hint('当前没有持仓'); return; }
-    var closed = pane.book.closeAll('全部平仓');
-    if (!closed.length) return;
-    var sum = 0;
-    closed.forEach(function (t) { sum += t.pnl; });
-    hint('已平掉 ' + closed.length + ' 单，合计 ' + money(sum));
-    if (pane.drawLayer) pane.drawLayer.requestRedraw();
+    openCloseReasonDialog(pane, 'all');
+  }
+
+  /** 自动化 / 调试接口: 带理由时直接平仓, 不带理由仍走弹窗 */
+  function quickClose(reason) {
+    var pane = activePane();
+    if (!pane || !pane.book) return null;
+    var pos = pane.book.activePosition();
+    if (!pos) { hint('当前没有持仓'); return null; }
+    var why = reasonText({ value: reason });
+    if (!why) { doClose(); return null; }
+    return performCloseOne(pane, pos.id, why);
+  }
+
+  function quickCloseOne(id, reason) {
+    var pane = activePane();
+    if (!pane || !pane.book) return null;
+    var why = reasonText({ value: reason });
+    if (!why) { doCloseOne(id); return null; }
+    return performCloseOne(pane, id, why);
+  }
+
+  function quickCloseAll(reason) {
+    var pane = activePane();
+    if (!pane || !pane.book) return [];
+    var why = reasonText({ value: reason });
+    if (!why) { doCloseAll(); return []; }
+    return performCloseAll(pane, why);
   }
 
   /* ============================================================ 止损 / 止盈设置弹层 */
 
   function levelPriceInput(kind) { return $(kind === 'sl' ? 'lpSlPrice' : 'lpTpPrice'); }
   function levelLotsInput(kind) { return $(kind === 'sl' ? 'lpSlLots' : 'lpTpLots'); }
+  function levelReasonInput(kind) { return $(kind === 'sl' ? 'lpSlReason' : 'lpTpReason'); }
   function levelRowEl(kind) { return $(kind === 'sl' ? 'lpSlRow' : 'lpTpRow'); }
 
   function levelPosText(pane, p) {
@@ -1998,7 +2255,8 @@
     return {
       lots: p.lots,
       sl: p.sl, slLots: p.slLots,
-      tp: p.tp, tpLots: p.tpLots
+      tp: p.tp, tpLots: p.tpLots,
+      slReason: p.slReason || '', tpReason: p.tpReason || ''
     };
   }
 
@@ -2013,8 +2271,14 @@
     var has = p[kind] != null;
     var priceEl = levelPriceInput(kind);
     var lotsEl = levelLotsInput(kind);
+    var reasonEl = levelReasonInput(kind);
     priceEl.value = has ? p[kind].toFixed(pane.digits) : '';
     lotsEl.value = has && p[kind + 'Lots'] != null ? p[kind + 'Lots'] : '';
+    reasonEl.value = has ? (p[kind + 'Reason'] || '') : '';
+    reasonEl.placeholder = '设置' + LEVEL_LABEL[kind] + '时必填';
+    clearNeed(priceEl);
+    clearNeed(lotsEl);
+    clearNeed(reasonEl);
     syncLevelRowMeta(pane, p, kind);
   }
 
@@ -2047,13 +2311,18 @@
     levelCtx = null;
     var pop = $('levelPop');
     if (pop) pop.hidden = true;
+    ['lpSlPrice', 'lpSlLots', 'lpSlReason', 'lpTpPrice', 'lpTpLots', 'lpTpReason'].forEach(function (id) {
+      clearNeed($(id));
+    });
+    var tip = $('lpHint');
+    if (tip) tip.classList.remove('error');
     if (!ctx || !ctx.undo) return;
     var book = ctx.pane.book;
     if (!book) return;
     var u = ctx.undo;
     // 只回滚仍是“待确认”的拖动档位; 已应用/已清除/已随仓位结算时不再动
     if (book.hasPendingLevel(ctx.id, u.kind)) {
-      book.restoreLevel(ctx.id, u.kind, u.prevPrice, u.prevLots);
+      book.restoreLevel(ctx.id, u.kind, u.prevPrice, u.prevLots, u.prevReason);
     }
   }
 
@@ -2081,8 +2350,9 @@
     });
 
     $('lpHint').textContent = auto && kind
-      ? '已自动识别为' + LEVEL_LABEL[kind] + '；点「应用」保留，直接关闭会撤销这次拖动（刷新页面会保留当前档位）。'
-      : '拖到现价盈利侧自动识别为止盈，亏损侧为止损；点标签右侧的 × 可直接取消。';
+      ? '已自动识别为' + LEVEL_LABEL[kind] + '；填写理由后点「应用」，直接关闭会撤销这次拖动。'
+      : '设置止盈止损需填写对应理由；应用后生效，直接关闭会撤销未确认的拖动。';
+    $('lpHint').classList.remove('error');
 
     pop.hidden = false;
     pop.style.left = '0px';
@@ -2099,11 +2369,13 @@
     pop.style.left = left + 'px';
     pop.style.top = top + 'px';
 
-    if (auto && kind) {
+    if ((auto || undo) && kind) {
       setTimeout(function () {
         if (!levelCtx || levelCtx.id !== id || levelCtx.pane !== pane) return;
-        var el = levelLotsInput(kind);
-        if (el) { el.focus(); el.select(); }
+        // 第一次设置时先填理由; 已有理由则把焦点放在手数上
+        var reasonEl = levelReasonInput(kind);
+        var el = reasonText(reasonEl) ? levelLotsInput(kind) : reasonEl;
+        if (el) { el.focus(); if (el.select) el.select(); }
       }, 0);
     }
   }
@@ -2117,10 +2389,14 @@
     var dg = pane.digits;
     var ops = [];
     var bad = null;
+    ['lpSlPrice', 'lpSlLots', 'lpSlReason', 'lpTpPrice', 'lpTpLots', 'lpTpReason'].forEach(function (id) {
+      clearNeed($(id));
+    });
 
     ['sl', 'tp'].forEach(function (k) {
       var priceEl = levelPriceInput(k);
       var lotsEl = levelLotsInput(k);
+      var reasonEl = levelReasonInput(k);
       if (priceEl.validity && priceEl.validity.badInput) {
         bad = { kind: k, el: priceEl, msg: LEVEL_LABEL[k] + '价格格式不正确' };
         return;
@@ -2131,6 +2407,7 @@
       }
       var rawPrice = String(priceEl.value || '').trim();
       var rawLots = String(lotsEl.value || '').trim();
+      var rawReason = reasonText(reasonEl);
       if (!rawPrice) {
         // 空价格不再隐式取消档位, 避免把浏览器判为非法而返回的空串当成“清除”
         if (p[k] != null || rawLots) {
@@ -2143,6 +2420,10 @@
         bad = { kind: k, el: priceEl, msg: LEVEL_LABEL[k] + '价格格式不正确' };
         return;
       }
+      if (!rawReason) {
+        bad = { kind: k, el: reasonEl, msg: '设置' + LEVEL_LABEL[k] + '需填写' + LEVEL_LABEL[k] + '理由' };
+        return;
+      }
       var lots = null;
       if (rawLots) {
         lots = parseFloat(rawLots);
@@ -2153,29 +2434,39 @@
       }
       var storedPrice = p[k];
       var storedLots = p[k + 'Lots'];
+      var storedReason = p[k + 'Reason'] || '';
       var tick = 1 / Math.pow(10, dg);
       var priceChanged = storedPrice == null || Math.abs(price - storedPrice) >= tick / 2;
       var lotsChanged = (lots == null) !== (storedLots == null) ||
         (lots != null && storedLots != null && Math.abs(lots - storedLots) > 1e-9);
+      var reasonChanged = rawReason !== storedReason;
       ops.push({
-        kind: k, price: price, lots: lots,
-        priceChanged: priceChanged, lotsChanged: lotsChanged
+        kind: k, price: price, lots: lots, reason: rawReason,
+        priceChanged: priceChanged, lotsChanged: lotsChanged, reasonChanged: reasonChanged
       });
     });
 
     if (bad) {
       hint(bad.msg);
-      bad.el.focus();
+      $('lpHint').textContent = bad.msg;
+      $('lpHint').classList.add('error');
+      markNeed(bad.el);
       return;
     }
 
     var msgs = [];
     ops.forEach(function (op) {
-      if (!op.priceChanged && !op.lotsChanged) return;
+      if (!op.priceChanged && !op.lotsChanged && !op.reasonChanged) return;
+      var res;
       // 价格没改但手数改了时不要重新夹价格, 否则光标在档位错误一侧会把未编辑的一侧也改掉
-      var res = op.priceChanged
-        ? book.setLevel(levelCtx.id, op.kind, op.price, op.lots)
-        : book.setLevelLots(levelCtx.id, op.kind, op.lots);
+      if (op.priceChanged) {
+        res = book.setLevel(levelCtx.id, op.kind, op.price, op.lots, op.reason);
+      } else if (op.lotsChanged) {
+        res = book.setLevelLots(levelCtx.id, op.kind, op.lots);
+        if (res) book.setLevelReason(levelCtx.id, op.kind, op.reason);
+      } else {
+        res = book.setLevelReason(levelCtx.id, op.kind, op.reason);
+      }
       if (res) msgs.push(LEVEL_LABEL[op.kind] + ' ' + res.price.toFixed(dg) + ' · ' + fmtLots(res.lots) + ' 手');
     });
     book.onUpdate();      // 批量修改后统一刷新/落盘
@@ -2197,7 +2488,16 @@
     book.onUpdate();
     levelPriceInput(kind).value = '';
     levelLotsInput(kind).value = '';
+    levelReasonInput(kind).value = '';
+    clearNeed(levelPriceInput(kind));
+    clearNeed(levelLotsInput(kind));
+    clearNeed(levelReasonInput(kind));
     levelRowEl(kind).classList.remove('focus');
+    var tip = $('lpHint');
+    if (tip) {
+      tip.classList.remove('error');
+      tip.textContent = '已取消' + LEVEL_LABEL[kind] + '；应用后生效。';
+    }
     hint('已取消' + LEVEL_LABEL[kind]);
   }
 
@@ -2278,8 +2578,7 @@
       var ok = book.orderSideOk(type, price);
       var dirCls = (type === 'buy_limit' || type === 'buy_stop') ? 'buy' : 'sell';
       ctxAdd(menu, dirCls, ORDER_LABELS[type], '@ ' + price.toFixed(dg), ok, function () {
-        book.placeOrder(type, price, { lots: book.lots, contract: book.contract, oco: book.oco });
-        if (pane.drawLayer) pane.drawLayer.requestRedraw();
+        placePendingOrder(type, price);
       });
     });
 
@@ -2471,16 +2770,12 @@
     $('importFile').addEventListener('change', importDrawings);
 
     $('btnTradePanel').addEventListener('click', function () {
-      var panel = $('tradePanel');
-      panel.hidden = !panel.hidden;
-      this.classList.toggle('on', !panel.hidden);
-      setTimeout(resizeLayers, 40);
+      setTradePanelOpen($('tradePanel').hidden);
     });
     $('btnTradeClose').addEventListener('click', function () {
       closeLevelPanel();
-      $('tradePanel').hidden = true;
-      $('btnTradePanel').classList.remove('on');
-      setTimeout(resizeLayers, 40);
+      closeReasonDialog();
+      setTradePanelOpen(false);
     });
 
     $('btnBuy').addEventListener('click', function () { doTrade(1); });
@@ -2490,11 +2785,33 @@
     $('lpApply').addEventListener('click', applyLevelPanel);
     $('lpSlClear').addEventListener('click', function () { clearLevelRow('sl'); });
     $('lpTpClear').addEventListener('click', function () { clearLevelRow('tp'); });
-    ['lpSlPrice', 'lpSlLots', 'lpTpPrice', 'lpTpLots'].forEach(function (id) {
+    ['lpSlPrice', 'lpSlLots', 'lpSlReason', 'lpTpPrice', 'lpTpLots', 'lpTpReason'].forEach(function (id) {
       $(id).addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); applyLevelPanel(); }
         else if (e.key === 'Escape') { e.preventDefault(); closeLevelPanel(); }
       });
+      $(id).addEventListener('input', function () { clearNeed(this); });
+    });
+
+    // 平仓理由弹窗
+    $('reasonClose').addEventListener('click', closeReasonDialog);
+    $('reasonCancel').addEventListener('click', closeReasonDialog);
+    $('reasonConfirm').addEventListener('click', confirmCloseReason);
+    $('reasonDialog').addEventListener('click', function (e) {
+      if (e.target === this) closeReasonDialog();
+    });
+    $('reasonText').addEventListener('input', function () {
+      $('reasonError').textContent = '';
+      clearNeed(this);
+    });
+    $('reasonText').addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeReasonDialog(); return; }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmCloseReason(); }
+    });
+
+    // 理由输入框在用户重新输入时去掉红框
+    ['entryReason', 'slReasonInput', 'tpReasonInput'].forEach(function (id) {
+      $(id).addEventListener('input', function () { clearNeed(this); });
     });
 
     $('lotsInput').addEventListener('change', function () {
@@ -2567,6 +2884,7 @@
 
   function onKey(e) {
     if (ChartStyle.isOpen()) return;
+    if (closeReasonCtx) return;
     var undoKey = (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'z';
     // 面板打开时, Ctrl+Z 始终作用于面板所属窗格, 不依赖 activePane
     if (undoKey && styleCtx) {
@@ -2654,14 +2972,39 @@
     e.target.value = '';
   }
 
+  function csvCell(v) {
+    var s = v == null ? '' : String(v);
+    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  /** 用户文本: 以公式字符开头时前置单引号, 避免 Excel 把理由当公式执行 */
+  function csvText(v) {
+    var s = v == null ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return csvCell(s);
+  }
+
   function exportTrades() {
     var p = activePane();
     if (!p || !p.book || !p.book.trades.length) { hint('还没有平仓记录'); return; }
-    var head = '开仓时间,方向,开仓价,手数,平仓时间,平仓价,平仓原因,盈亏';
+    var head = '开仓时间,方向,开仓价,手数,入场理由,平仓时间,平仓价,平仓原因,平仓理由,止损价,止损理由,止盈价,止盈理由,盈亏';
     var lines = p.book.trades.map(function (t) {
       return [
-        fmtTime(t.entryTime), t.dir === 1 ? '多' : '空', t.entryPrice.toFixed(p.digits),
-        t.lots, fmtTime(t.exitTime), t.exitPrice.toFixed(p.digits), t.reason, t.pnl.toFixed(2)
+        csvCell(fmtTime(t.entryTime)),
+        csvCell(t.dir === 1 ? '多' : '空'),
+        csvCell(t.entryPrice.toFixed(p.digits)),
+        csvCell(t.lots),
+        csvText(t.entryReason),
+        csvCell(fmtTime(t.exitTime)),
+        csvCell(t.exitPrice.toFixed(p.digits)),
+        csvText(t.reason),
+        csvText(t.exitReason),
+        csvCell(t.sl != null ? t.sl.toFixed(p.digits) : ''),
+        csvText(t.slReason),
+        csvCell(t.tp != null ? t.tp.toFixed(p.digits) : ''),
+        csvText(t.tpReason),
+        csvCell(t.pnl.toFixed(2))
       ].join(',');
     });
     var csv = '\ufeff' + head + '\r\n' + lines.join('\r\n');
@@ -2689,6 +3032,7 @@
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
+        closeReasonDialog();
         closeLevelPanel();
         hideMenu();
       }
@@ -2710,15 +3054,18 @@
       api: {
         setCursor: setCursor,
         hint: hint,
-        open: doTrade,
-        close: doClose,
-        closeOne: doCloseOne,
-        closeAll: doCloseAll,
+        open: function (dir, reason) {
+          if (reason != null) $('entryReason').value = reason;
+          return doTrade(dir);
+        },
+        close: quickClose,
+        closeOne: quickCloseOne,
+        closeAll: quickCloseAll,
         setLayout: setLayout,
         openSettings: openChartSettings,
-        placeOrder: function (type, price) {
-          var p = activePane();
-          return p ? p.book.placeOrder(type, price, { lots: p.book.lots, contract: p.book.contract, oco: p.book.oco }) : null;
+        placeOrder: function (type, price, reason) {
+          if (reason != null) $('entryReason').value = reason;
+          return placePendingOrder(type, price);
         },
         cancelAllOrders: function () { var p = activePane(); if (p) p.book.cancelAllOrders(); },
         openLevel: function (id, kind) {
@@ -2728,9 +3075,9 @@
           if (!pos) return;
           openLevelPanel(p, pos.id, kind || null, window.innerWidth / 2, window.innerHeight / 2, false);
         },
-        setLevel: function (id, kind, price, lots) {
+        setLevel: function (id, kind, price, lots, reason) {
           var p = activePane();
-          return p && p.book ? p.book.setLevel(id, kind, price, lots) : null;
+          return p && p.book ? p.book.setLevel(id, kind, price, lots, reason) : null;
         },
         clearLevel: function (id, kind) {
           var p = activePane();

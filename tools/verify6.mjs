@@ -33,6 +33,7 @@ check('找到上涨样本', !!spot, spot ? `${spot.c0.toFixed(2)} -> ${spot.c1.t
 
 await page.evaluate((i) => window.KR.api.setCursor(i), spot.i);
 await page.waitForTimeout(300);
+await page.fill('#entryReason', 'M5 回踩支撑后做多');
 await page.click('#btnBuy');
 await page.waitForTimeout(400);
 await page.evaluate((i) => window.KR.api.setCursor(i + 80), spot.i);
@@ -68,22 +69,27 @@ await page.mouse.move(box.x + slCenter.x, box.y + ty, { steps: 12 });
 await page.mouse.up();
 await page.waitForTimeout(400);
 
+// 拖动只打开设置面板, 填理由并应用后才真正保留
+check('拖动 SL 后打开设置面板', await page.locator('#levelPop').isVisible());
+await page.fill('#lpSlReason', '盈利后上移止损');
+await page.click('#lpApply');
+await page.waitForTimeout(400);
+
 const st1 = await page.evaluate(() => {
   const p = window.KR.book.position;
   const close = window.KR.state.bars[window.KR.state.cursor].close;
-  return { entry: p.entryPrice, close: close, sl: p.sl };
+  return { entry: p.entryPrice, close: close, sl: p.sl, slReason: p.slReason };
 });
 check('止损可拖到开仓价之上（跟踪止损）', st1.sl > st1.entry,
   `sl=${st1.sl.toFixed(2)} > entry=${st1.entry.toFixed(2)}`);
 check('止损仍在现价之下', st1.sl < st1.close, `sl=${st1.sl.toFixed(2)} < close=${st1.close.toFixed(2)}`);
+check('拖动止损时保存了理由', st1.slReason === '盈利后上移止损', String(st1.slReason));
 
-// ---- 3. SL 拖到现价之上 → 夹到现价下方
+// ---- 3. SL 拖到现价之上 → 夹到现价下方（setLevel 与拖拽共用同一夹紧逻辑）
 await page.evaluate(() => {
   const book = window.KR.book;
-  const y = window.KR.candle.priceToCoordinate(book.currentClose()) - 400;  // 远高于现价
-  book._dragMode = 'sl-button';
-  book.dragMove(300, y);
-  book._dragMode = null;
+  const p = book.position;
+  book.setLevel(p.id, 'sl', book.currentClose() + 400, null, '夹紧测试');
 });
 await page.waitForTimeout(300);
 const st2 = await page.evaluate(() => {
@@ -101,21 +107,24 @@ await page.mouse.down();
 await page.mouse.move(box.x + tpCenter.x, box.y + ty2, { steps: 12 });
 await page.mouse.up();
 await page.waitForTimeout(400);
+check('拖动 TP 后打开设置面板', await page.locator('#levelPop').isVisible());
+await page.fill('#lpTpReason', '前高目标止盈');
+await page.click('#lpApply');
+await page.waitForTimeout(400);
 
 const st3 = await page.evaluate(() => {
   const p = window.KR.book.position;
-  return { close: window.KR.book.currentClose(), tp: p.tp };
+  return { close: window.KR.book.currentClose(), tp: p.tp, tpReason: p.tpReason };
 });
 check('拖动 TP 设置了止盈', st3.tp != null, `tp=${st3.tp && st3.tp.toFixed(2)}`);
 check('止盈在现价之上', st3.tp > st3.close, `${st3.tp && st3.tp.toFixed(2)} > ${st3.close.toFixed(2)}`);
+check('拖动止盈时保存了理由', st3.tpReason === '前高目标止盈', String(st3.tpReason));
 
 // ---- 5. TP 拖到现价之下 → 夹到现价上方
 await page.evaluate(() => {
   const book = window.KR.book;
-  const y = window.KR.candle.priceToCoordinate(book.currentClose()) + 400;
-  book._dragMode = 'tp-button';
-  book.dragMove(300, y);
-  book._dragMode = null;
+  const p = book.position;
+  book.setLevel(p.id, 'tp', book.currentClose() - 400, null, '夹紧测试');
 });
 await page.waitForTimeout(300);
 const st4 = await page.evaluate(() => {

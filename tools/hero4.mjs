@@ -21,6 +21,7 @@ const spot = await page.evaluate(() => {
 
 await page.evaluate((i) => window.KR.api.setCursor(i), spot.i);
 await page.waitForTimeout(300);
+await page.fill('#entryReason', '上涨趋势回踩做多');
 await page.click('#btnBuy');
 await page.waitForTimeout(300);
 await page.evaluate((i) => window.KR.api.setCursor(i + 80), spot.i);
@@ -41,6 +42,9 @@ await page.mouse.down();
 await page.mouse.move(box.x + st.sl.x + st.sl.w / 2, box.y + slY, { steps: 14 });
 await page.mouse.up();
 await page.waitForTimeout(400);
+await page.fill('#lpSlReason', '浮盈后上移跟踪止损');
+await page.click('#lpApply');
+await page.waitForTimeout(400);
 
 // 刷新按钮坐标（面板/布局可能变了）
 const st2 = await page.evaluate(() => ({ sl: window.KR.book._slBtn, tp: window.KR.book._tpBtn }));
@@ -53,6 +57,9 @@ await page.mouse.down();
 await page.mouse.move(box.x + st2.tp.x + st2.tp.w / 2, box.y + tpY, { steps: 14 });
 await page.mouse.up();
 await page.waitForTimeout(600);
+await page.fill('#lpTpReason', '前高目标止盈');
+await page.click('#lpApply');
+await page.waitForTimeout(400);
 
 await page.mouse.move(10, 10);
 await page.waitForTimeout(400);

@@ -1233,6 +1233,53 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .tp-grid input:focus { border-color: var(--accent); }
 .tp-grid input::placeholder { color: #4a5364; }
 
+/* 设置止损/止盈时填写的理由, 只在对应价格有值时必填 */
+.tp-grid label.wide { grid-column: 1 / -1; }
+
+.tp-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 9px;
+  font-size: 11px;
+  color: var(--muted-2);
+}
+
+.tp-reason > span { display: flex; align-items: center; gap: 5px; }
+
+.tp-reason em {
+  font-style: normal;
+  color: #ffb74d;
+  font-size: 10px;
+  letter-spacing: .2px;
+}
+
+.tp-reason textarea {
+  width: 100%;
+  min-height: 42px;
+  max-height: 92px;
+  resize: vertical;
+  background: #10141d;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 7px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.tp-reason textarea:focus { border-color: var(--accent); }
+.tp-reason textarea::placeholder { color: #4a5364; }
+
+/* 未填写必填理由时的错误边框 */
+input.need,
+textarea.need {
+  border-color: var(--down) !important;
+  box-shadow: 0 0 0 1px rgba(239, 83, 80, .25);
+}
+
 .oco-row {
   padding: 3px 2px;
   margin-top: 2px;
@@ -1271,6 +1318,28 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   opacity: .85;
 }
 .pos-row.pos-levels:hover .pos-edit { opacity: 1; text-decoration: underline; }
+
+/* 每笔持仓的理由行: 单行省略, title 里保留全文 */
+.pos-row.pos-why {
+  padding: 1px 0;
+  font-size: 10.5px;
+  gap: 8px;
+}
+
+.pos-row.pos-why .k { font-size: 10.5px; flex: 0 0 auto; }
+.pos-row.pos-why .v {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.pos-row.pos-why .v.empty { color: var(--muted-2); font-style: italic; }
+.pos-row.pos-why.pos-levels { cursor: pointer; border-radius: 3px; margin: 0 -3px; padding: 1px 3px; }
+.pos-row.pos-why.pos-levels:hover { background: var(--panel-3); }
 
 .pos-head {
   display: flex;
@@ -1440,9 +1509,8 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 
 .trade-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   padding: 6px 8px;
   border-radius: 6px;
   background: #131722;
@@ -1451,6 +1519,23 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
+
+.trade-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trade-why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+
+.trade-why.empty { font-style: italic; }
 
 .trade-item:hover { border-color: #33405a; background: #171c27; }
 .trade-item .dir { font-weight: 600; }
@@ -1542,14 +1627,17 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .lp-body { padding-top: 2px; }
 
 .lp-row {
-  display: grid;
-  grid-template-columns: 68px 1fr 82px 46px;
-  gap: 7px;
-  align-items: end;
   margin-top: 7px;
   padding: 7px 6px 8px;
   border: 1px solid transparent;
   border-radius: 7px;
+}
+
+.lp-line {
+  display: grid;
+  grid-template-columns: 68px 1fr 82px 46px;
+  gap: 7px;
+  align-items: end;
 }
 
 .lp-row.focus {
@@ -1601,6 +1689,34 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 .lp-field input:focus { border-color: var(--accent); }
 .lp-field input::placeholder { color: #4a5364; }
 
+.lp-reason {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  font-size: 10px;
+  letter-spacing: .3px;
+  color: var(--muted-2);
+}
+
+.lp-reason span { flex: 0 0 auto; white-space: nowrap; }
+
+.lp-reason input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #10141d;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 7px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.lp-reason input:focus { border-color: var(--accent); }
+.lp-reason input::placeholder { color: #4a5364; }
+
 .lp-clear {
   border: 1px solid var(--border);
   background: transparent;
@@ -1621,6 +1737,8 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   font-size: 10.5px;
   line-height: 1.55;
 }
+
+.lp-tip.error { color: var(--down); }
 
 .lp-foot {
   display: flex;
@@ -1705,9 +1823,8 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
 
 .order-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   padding: 6px 8px;
   border-radius: 6px;
   background: #131722;
@@ -1715,6 +1832,23 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); c
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
+
+.order-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.order-why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+
+.order-why.empty { font-style: italic; }
 
 .order-item .type-buy { color: var(--up); }
 .order-item .type-sell { color: var(--down); }
@@ -2206,6 +2340,86 @@ body.ft-dragging * { cursor: grabbing !important; user-select: none !important; 
 }
 
 .cs-btn.primary:hover { filter: brightness(1.08); }
+
+/* ------------------------------------------------------------ 平仓理由弹窗 */
+
+.reason-backdrop { z-index: 220; }
+
+.reason-dialog { width: min(470px, 100%); }
+
+.reason-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px 4px;
+}
+
+.reason-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.reason-context {
+  margin-top: 3px;
+  color: var(--muted-2);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reason-context:empty { display: none; }
+
+.reason-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.reason-field > span { display: flex; align-items: center; gap: 5px; }
+
+.reason-field em {
+  font-style: normal;
+  color: #ffb74d;
+  font-size: 10px;
+}
+
+.reason-field textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  background: #10141d;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 9px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  outline: none;
+}
+
+.reason-field textarea:focus { border-color: var(--accent); }
+.reason-field textarea::placeholder { color: #4a5364; }
+
+.reason-error {
+  min-height: 16px;
+  margin-top: 6px;
+  color: var(--down);
+  font-size: 11px;
+}
+
+.reason-tip {
+  padding-bottom: 8px;
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
 
 #csReset { color: var(--muted); }
 #csReset:hover { color: var(--text); }

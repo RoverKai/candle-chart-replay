@@ -29,6 +29,7 @@ const entryTime = await page.evaluate(() => window.KR.state.bars[window.KR.state
 // ---- 1. 手动开多
 await page.fill('#lotsInput', '0.1');
 await page.fill('#contractInput', '100');
+await page.fill('#entryReason', 'M5 回踩趋势线不破');
 await page.click('#btnBuy');
 await page.waitForTimeout(300);
 
@@ -50,8 +51,11 @@ check('浮动盈亏计算正确', Math.abs(fl - expect40) < 1e-6, `floating=${fl
 const posText = await page.textContent('#posBlock');
 check('面板浮动盈亏同步', posText.includes(fl.toFixed(2)), `面板=${posText.replace(/\s+/g, ' ').trim()} 期望包含 ${fl.toFixed(2)}`);
 
-// ---- 3. 手动平仓
+// ---- 3. 手动平仓（先写平仓理由）
 await page.click('#btnClosePos');
+await page.waitForTimeout(150);
+await page.fill('#reasonText', '趋势按预期走完，主动止盈');
+await page.click('#reasonConfirm');
 await page.waitForTimeout(300);
 st = await page.evaluate(() => ({
   pos: window.KR.book.position,
@@ -68,7 +72,9 @@ await page.evaluate(() => window.KR.api.setCursor(5000));
 await page.waitForTimeout(300);
 const e2 = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
 const slPrice = Number((e2 - 0.5).toFixed(2));
+await page.fill('#entryReason', '回踩支撑做多');
 await page.fill('#slInput', String(slPrice));
+await page.fill('#slReasonInput', '突破前高则止损');
 await page.click('#btnBuy');
 await page.waitForTimeout(250);
 const opened = await page.evaluate(() => !!window.KR.book.position);
@@ -116,6 +122,7 @@ await page.click('#btnTradePanel');
 await page.waitForTimeout(300);
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor - 120));
 await page.waitForTimeout(300);
+await page.fill('#entryReason', '反弹到阻力位试空');
 await page.click('#btnSell');
 await page.waitForTimeout(300);
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 45));

@@ -22,7 +22,8 @@
     "verify:chart-style": "node tools/verify12.mjs",
     "verify:multi": "node tools/verify13.mjs",
     "verify:levels": "node tools/verify14.mjs",
-    "verify:float": "node tools/verify15.mjs"
+    "verify:float": "node tools/verify15.mjs",
+    "verify:reason": "node tools/verify16.mjs"
   },
   "license": "MIT",
   "type": "commonjs",

@@ -400,7 +400,7 @@ cargo fmt --manifest-path server/Cargo.toml --check
 
 - `/api/bars` 会按「文件路径 + mtime + size + digits」缓存 identity 与 gzip 响应体，
   总上限 128MiB / 32 项；热请求约 1ms，冷请求（11 万根）约 100ms。
-- `server` / `symbol` 查询参数会先做单路径组件白名单，再用 canonicalize 校验不越出账户目录。
+- `server` / `symbol` 查询参数会先做单路径组件白名单（拒绝分隔符、`..`、绝对路径/盘符）；账户目录与 `.hst` 的软链接按用户配置跟随。
 - 静态资源由 tower-http `ServeDir` 托管，保留 `Last-Modified`/304，并对 JS/CSS/HTML 启用 gzip。
 
 ## Docker

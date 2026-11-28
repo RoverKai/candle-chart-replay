@@ -76,32 +76,20 @@ async fn serve(cli: Cli) -> Result<(), String> {
     let state = Arc::new(AppState::new(history.clone()));
     let app = api::router(state, web_dir);
 
-    let mut port = cli.port;
-    let mut listener = None;
-    for _ in 0..20 {
-        match tokio::net::TcpListener::bind((cli.host.as_str(), port)).await {
-            Ok(bound) => {
-                listener = Some(bound);
-                break;
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::AddrInUse | std::io::ErrorKind::AddrNotAvailable
-                ) =>
-            {
-                if port == u16::MAX {
-                    break;
-                }
-                port += 1;
-            }
-            Err(error) => {
-                return Err(format!("[x] 无法监听 {}:{}: {error}", cli.host, port));
-            }
+    // 和 README/启动脚本保持一致：端口被占用时明确报错，不静默换端口，
+    // 避免脚本提示的 URL 与实际监听端口不一致。
+    let port = cli.port;
+    let listener = match tokio::net::TcpListener::bind((cli.host.as_str(), port)).await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            return Err(format!(
+                "[x] 端口 {port} 已被其他程序占用\n    换一个端口重试: --port {}",
+                port.saturating_add(1)
+            ));
         }
-    }
-    let Some(listener) = listener else {
-        return Err("[x] 没有可用端口".to_string());
+        Err(error) => {
+            return Err(format!("[x] 无法监听 {}:{}: {error}", cli.host, port));
+        }
     };
 
     let url = format!("http://{}:{}/", cli.host, port);

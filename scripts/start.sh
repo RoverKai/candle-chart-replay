@@ -119,7 +119,7 @@ if http_health "$PORT"; then
   exit 0
 fi
 
-# 服务端在端口被占用时会自动向后换端口；这里提前拦住，避免提示的 URL 和实际不符
+# 先探测端口，避免提示的 URL 和实际监听不一致（服务端本身也不再静默换端口）
 if port_busy "$PORT"; then
   printf '\n'
   printf '  [x] 端口 %s 已被其他程序占用\n' "$PORT"

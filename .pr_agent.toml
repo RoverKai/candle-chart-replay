@@ -19,9 +19,9 @@ repo_context_max_lines = 500
 # 注意不要整目录忽略 tools/：verify*.mjs 是「PR 声称验证过」的一部分，
 # 藏起来会让评审看不到这部分 diff（既低估评审工作量，又会误报「文件缺失」，
 # 见 PR #2 里 tools/verify10.mjs 的假阳性）。只忽略一次性的截图/探测脚本。
+# Cargo.lock 不忽略：依赖版本与校验和变化需要进评审 diff。
 glob = [
   "package-lock.json",
-  "server/Cargo.lock",
   "node_modules/**",
   "web/vendor/**",
   "server/target/**",
@@ -52,7 +52,7 @@ extra_instructions = """
 - 运行环境：server/ 是 Rust 2021 crate（axum + tokio + tower-http + serde/serde_json + flate2），用 cargo build/test/clippy/fmt；前端仍是原生 ES module + web/vendor 里内置的 lightweight-charts，没有打包步骤。看到新增运行时依赖、构建链、CDN 引用，要说明理由并评估对镜像体积与编译时间的影响。
 - .hst 解析（server/src/hst.rs）：按小端序读 MT4 二进制记录，存在 44/60 字节两种记录长度与不同版本头。任何改动偏移、长度推断、时间戳换算、digits 取整语义的地方，必须指出对旧数据文件和异常文件的兼容性风险，并补充/更新 cargo test。
 - /api 契约：GET /api/catalog、/api/bars、/api/refresh、/api/health 返回的 JSON 字段被 web/js 直接消费。改字段名/类型必须同时改前端，并说明是否需要清缓存（/api/refresh）。
-- 安全：server/src/api.rs 里 server/symbol 来自查询参数并参与路径拼接，必须先做单组件白名单 + canonicalize/starts_with 校验；静态文件由 tower-http ServeDir 托管。看到手写拼接或绕过校验的路径处理，按路径穿越风险提出。
+- 安全：server/src/api.rs / catalog.rs 里 server/symbol 来自查询参数并参与路径拼接，必须先做单路径组件白名单（拒绝分隔符、`..`、绝对路径/盘符）；账户目录与 .hst 的软链接按用户配置跟随。静态文件由 tower-http ServeDir 托管。看到手写拼接或绕过校验的路径处理，按路径穿越风险提出。
 - 报错文案面向本机用户，保持中文且可操作（指明目录、参数、端口），不要静默吞异常或改英文。
 - 前端交互（回放、画线、下单面板）有改动时，请作者说明跑过哪个 tools/verify*.mjs 或附截图；不要凭空要求新建前端单元测试。
 - 服务端改动请给出 cargo fmt/clippy/test 的实际结果，并至少跑 core 回归 verify / verify:trade / verify:order 之一或说明原因。

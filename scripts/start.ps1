@@ -1,4 +1,4 @@
-#requires -version 5
+﻿#requires -version 5
 <#
   K线复盘 启动器
   用法:  powershell -ExecutionPolicy Bypass -File scripts\start.ps1 [-Port 8766] [-NoOpen]

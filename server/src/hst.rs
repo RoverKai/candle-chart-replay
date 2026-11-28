@@ -201,6 +201,8 @@ pub fn read_meta(path: &Path) -> io::Result<HstMeta> {
     let record_size = detect_record_size(size);
     let bar_count = size.saturating_sub(HEADER_SIZE) / record_size;
 
+    // 与旧 Python 实现保持一致：目录页展示的 first/last 取原始首/末记录，bar_count 也是
+    // 原始记录数；time<=0 过滤与去重只发生在 read_bars（K 线接口）。
     let (first_time, last_time) = if bar_count > 0 {
         let mut buffer = [0u8; 4];
         file.seek(SeekFrom::Start(HEADER_SIZE))?;
@@ -425,6 +427,37 @@ mod tests {
         assert_eq!(meta.first_time, 100);
         assert_eq!(meta.last_time, 160);
         assert_eq!(meta.record_size, 60);
+    }
+
+    #[test]
+    fn meta_keeps_raw_bounds_and_count_like_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_hst(
+            dir.path(),
+            "XAUUSD5.hst",
+            401,
+            "XAUUSD",
+            5,
+            2,
+            &[
+                (0, 1.0, 2.0, 0.5, 1.5, 1),
+                (100, 1.0, 2.0, 0.5, 1.5, 2),
+                (90, 1.0, 2.0, 0.5, 1.5, 3),
+                (160, 1.5, 2.5, 1.0, 2.0, 4),
+            ],
+            false,
+        );
+        // 旧 Python 的 read_meta 取原始首/末记录与原始条数，不做 time<=0/去重清洗；
+        // 本测试锁定这一兼容行为，清洗只发生在 read_bars。
+        let meta = read_meta(&path).unwrap();
+        assert_eq!(meta.bar_count, 4);
+        assert_eq!(meta.first_time, 0);
+        assert_eq!(meta.last_time, 160);
+
+        let bars = read_bars(&path).unwrap();
+        assert_eq!(bars.len(), 2);
+        assert_eq!(bars[0].time, 100);
+        assert_eq!(bars[1].time, 160);
     }
 
     #[test]

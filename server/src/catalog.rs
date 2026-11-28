@@ -3,7 +3,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::config::{period_label, server_label};
@@ -171,42 +171,44 @@ pub fn build_catalog(history_root: &Path) -> Catalog {
     }
 }
 
-/// 只允许单一路径组件；拒绝 `/`、`\`、NUL、控制字符和 `.`/`..`。
+/// 只允许单一路径组件；拒绝 `/`、`\`、NUL、控制字符、`.`/`..` 以及盘符/绝对路径。
 pub fn valid_component(value: &str) -> bool {
-    !value.is_empty()
-        && value != "."
-        && value != ".."
-        && !value.chars().any(|character| {
-            character == '/' || character == '\\' || character == '\0' || character.is_control()
-        })
+    if value.is_empty() || value == "." || value == ".." {
+        return false;
+    }
+    if value.chars().any(|character| {
+        character == '/' || character == '\\' || character == '\0' || character.is_control()
+    }) {
+        return false;
+    }
+    let mut components = Path::new(value).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
-/// 精确文件名优先，其次大小写不敏感扫描；返回的路径一定位于 accounts 目录内。
+/// 精确文件名优先，其次大小写不敏感扫描。
+///
+/// 只允许单一路径组件，所以查询参数无法穿越；账户目录或 `.hst` 本身是软链接时按用户配置
+/// 跟随，与旧 Python 行为一致（Wine / 外部 MT4 目录常通过软链接挂进来）。
 pub fn find_hst(history_root: &Path, server: &str, symbol: &str, period: i64) -> Option<PathBuf> {
     if !valid_component(server) || !valid_component(symbol) {
         return None;
     }
 
-    let root = fs::canonicalize(history_root).ok()?;
-    let base = fs::canonicalize(history_root.join(server)).ok()?;
-    if !base.starts_with(&root) || !base.is_dir() {
+    let base = history_root.join(server);
+    if !base.is_dir() {
         return None;
     }
 
     let candidate = base.join(format!("{symbol}{period}.hst"));
-    if candidate.is_file() {
-        if let Ok(path) = fs::canonicalize(&candidate) {
-            if path.starts_with(&base) {
-                return Some(path);
-            }
-        }
+    if candidate.is_file() && candidate.parent() == Some(base.as_path()) {
+        return Some(candidate);
     }
 
     let wanted_symbol = symbol.to_lowercase();
     let entries = fs::read_dir(&base).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_file() || !is_hst(&path) {
+        if path.parent() != Some(base.as_path()) || !path.is_file() || !is_hst(&path) {
             continue;
         }
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -216,11 +218,7 @@ pub fn find_hst(history_root: &Path, server: &str, symbol: &str, period: i64) ->
             continue;
         };
         if file_period as i64 == period && file_symbol.to_lowercase() == wanted_symbol {
-            if let Ok(path) = fs::canonicalize(&path) {
-                if path.starts_with(&base) {
-                    return Some(path);
-                }
-            }
+            return Some(path);
         }
     }
     None
@@ -346,5 +344,38 @@ mod tests {
         assert!(!valid_component("a/b"));
         assert!(!valid_component("a\\b"));
         assert!(!valid_component("a\nb"));
+        assert!(!valid_component("/etc"));
+        assert!(!valid_component("C:\\Windows"));
+        assert!(!valid_component("a/../b"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follows_symlinked_account_and_file() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        write_stub_hst(external.path(), "XAUUSD5.hst", "XAUUSD", 5, 2, 0);
+
+        // 账户目录本身是软链接
+        symlink(external.path(), root.path().join("LinkedAccount")).unwrap();
+        assert!(find_hst(root.path(), "LinkedAccount", "XAUUSD", 5).is_some());
+        let catalog = build_catalog(root.path());
+        assert!(catalog
+            .servers
+            .iter()
+            .any(|server| server.id == "LinkedAccount"));
+
+        // 账户目录下的单个 .hst 是指向外部文件的软链接
+        let server = root.path().join("Srv");
+        std::fs::create_dir_all(&server).unwrap();
+        write_stub_hst(external.path(), "EURUSD240.hst", "EURUSD", 240, 5, 0);
+        symlink(
+            external.path().join("EURUSD240.hst"),
+            server.join("EURUSD240.hst"),
+        )
+        .unwrap();
+        assert!(find_hst(root.path(), "Srv", "EURUSD", 240).is_some());
     }
 }

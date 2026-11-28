@@ -1,4 +1,4 @@
-﻿#requires -version 5
+#requires -version 5
 <#
   K线复盘 启动器
   用法:  powershell -ExecutionPolicy Bypass -File scripts\start.ps1 [-Port 8766] [-NoOpen]
@@ -15,8 +15,6 @@ Set-Location $Root
 # 控制台按 UTF-8 输出，避免中文乱码
 try {
   [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-  $env:PYTHONIOENCODING = 'utf-8'
-  $env:PYTHONUTF8 = '1'
 } catch { }
 
 function Test-Server([int]$p) {
@@ -26,6 +24,23 @@ function Test-Server([int]$p) {
   } catch {
     return $false
   }
+}
+
+function Test-PortBusy([int]$p) {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $client.Connect('127.0.0.1', $p)
+    return $true
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
+}
+
+if ($Port -lt 1 -or $Port -gt 65535) {
+  Write-Host "  [x] 端口无效: $Port" -ForegroundColor Red
+  exit 2
 }
 
 Write-Host ''
@@ -43,94 +58,101 @@ if (Test-Server $Port) {
   exit 0
 }
 
-# ---------------------------------------------------------------- 找 Python
-$candidates = @()
-
-$py = Get-Command py -ErrorAction SilentlyContinue
-if ($py) { $candidates += , @($py.Source, '-3') }
-
-foreach ($name in @('python', 'python3')) {
-  $cmd = Get-Command $name -ErrorAction SilentlyContinue
-  if ($cmd -and $cmd.Source) { $candidates += , @($cmd.Source) }
-}
-
-$common = @(
-  "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
-  "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
-  "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
-  "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
-  "$env:LOCALAPPDATA\Programs\Python\Python39\python.exe",
-  'C:\Python313\python.exe',
-  'C:\Python312\python.exe',
-  'C:\Python311\python.exe',
-  'D:\Conda\python.exe',
-  'C:\Conda\python.exe',
-  'C:\ProgramData\Anaconda3\python.exe',
-  'C:\ProgramData\miniconda3\python.exe',
-  "$env:USERPROFILE\anaconda3\python.exe",
-  "$env:USERPROFILE\miniconda3\python.exe"
-)
-foreach ($p in $common) {
-  if (Test-Path -LiteralPath $p) { $candidates += , @($p) }
-}
-
-$python = $null
-$rejected = @()
-
-foreach ($cand in $candidates) {
-  $exe = $cand[0]
-  $pre = @($cand | Select-Object -Skip 1)
-
-  # 跳过 Microsoft Store 的 0 字节占位程序 (WindowsApps\python.exe)
-  if ($exe -like '*\WindowsApps\*') {
-    $rejected += "$exe  (应用商店占位程序)"
-    continue
-  }
-
-  try {
-    $probe = & $exe @pre '-c' 'import sys;print(sys.version.split()[0])' 2>$null
-    if ($LASTEXITCODE -eq 0 -and $probe) {
-      $python = @{ Exe = $exe; Pre = $pre; Version = ($probe | Select-Object -First 1) }
-      break
-    }
-  } catch { }
-  $rejected += "$exe  (无法运行)"
-}
-
-if (-not $python) {
+if (Test-PortBusy $Port) {
   Write-Host ''
-  Write-Host '  [x] 没有找到可用的 Python 3' -ForegroundColor Red
-  if ($rejected.Count) {
-    Write-Host '      已排除:' -ForegroundColor DarkGray
-    $rejected | ForEach-Object { Write-Host "        - $_" -ForegroundColor DarkGray }
-  }
-  Write-Host ''
-  Write-Host '  解决办法:' -ForegroundColor Yellow
-  Write-Host '    1) 安装 Python 3.9+ (python.org)，安装时勾选 "Add python.exe to PATH"'
-  Write-Host '    2) 或者告诉我 Python 的完整路径，我改一下 start.ps1'
-  Write-Host ''
-  Write-Host '  按回车关闭...' -ForegroundColor DarkGray
-  [void](Read-Host)
+  Write-Host "  [x] 端口 $Port 已被其他程序占用" -ForegroundColor Red
+  Write-Host "      换一个端口重试: powershell -ExecutionPolicy Bypass -File scripts\start.ps1 -Port 9000" -ForegroundColor DarkGray
   exit 1
 }
 
+# ---------------------------------------------------------------- 找二进制 / 编译
+$NeedBuild = $false
+if ($env:KLINE_BIN) {
+  $Bin = $env:KLINE_BIN
+  if (-not (Test-Path -LiteralPath $Bin)) {
+    Write-Host ''
+    Write-Host "  [x] KLINE_BIN 指向的文件不存在: $Bin" -ForegroundColor Red
+    exit 1
+  }
+} else {
+  $Bin = Join-Path $Root 'server\target\release\kline-replay.exe'
+  if (-not (Test-Path -LiteralPath $Bin)) {
+    $NeedBuild = $true
+  } else {
+    $cargo = Get-Command cargo -ErrorAction SilentlyContinue
+    if ($cargo) {
+      $binTime = (Get-Item -LiteralPath $Bin).LastWriteTimeUtc
+      $sources = @()
+      $srcDir = Join-Path $Root 'server\src'
+      if (Test-Path -LiteralPath $srcDir) {
+        $sources += Get-ChildItem -LiteralPath $srcDir -Recurse -File -Filter *.rs
+      }
+      foreach ($rel in @('server\Cargo.toml', 'server\Cargo.lock')) {
+        $candidate = Join-Path $Root $rel
+        if (Test-Path -LiteralPath $candidate) { $sources += Get-Item -LiteralPath $candidate }
+      }
+      if ($sources | Where-Object { $_.LastWriteTimeUtc -gt $binTime } | Select-Object -First 1) {
+        $NeedBuild = $true
+      }
+    }
+  }
+}
+
+if ($NeedBuild) {
+  $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+  if (-not $cargoCmd) {
+    Write-Host ''
+    Write-Host '  [x] 找不到服务端二进制，也没有找到 cargo' -ForegroundColor Red
+    Write-Host '      需要先安装 Rust: https://rustup.rs' -ForegroundColor Yellow
+    Write-Host '      安装后重新运行本脚本，会自动编译。' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host '  按回车关闭...' -ForegroundColor DarkGray
+    [void](Read-Host)
+    exit 1
+  }
+  Write-Host ''
+  Write-Host '  正在编译 Rust 服务端（首次约 1-3 分钟，之后秒开）...' -ForegroundColor DarkGray
+  $manifest = Join-Path $Root 'server\Cargo.toml'
+  & $cargoCmd.Source build --release --locked --manifest-path $manifest
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ''
+    Write-Host '  [x] Rust 服务端编译失败' -ForegroundColor Red
+    Write-Host '      请检查 cargo 是否可用、网络能否访问 crates.io，或先手动执行:' -ForegroundColor Yellow
+    Write-Host '      cargo build --release --locked --manifest-path server\Cargo.toml' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host '  按回车关闭...' -ForegroundColor DarkGray
+    [void](Read-Host)
+    exit 1
+  }
+}
+
+if (-not (Test-Path -LiteralPath $Bin)) {
+  Write-Host ''
+  Write-Host "  [x] 没有找到可执行的服务端: $Bin" -ForegroundColor Red
+  exit 1
+}
+
+$hist = if ($env:MT4_HISTORY) {
+  $env:MT4_HISTORY
+} elseif (Test-Path -LiteralPath (Join-Path $Root 'data\history')) {
+  "$(Join-Path $Root 'data\history')  (仓库自带样例)"
+} else {
+  'C:\Program Files (x86)\MetaTrader 4\history'
+}
+
 Write-Host ''
-Write-Host "  Python : $($python.Version)   $($python.Exe)" -ForegroundColor DarkGray
-$hist = if ($env:MT4_HISTORY) { $env:MT4_HISTORY } else { 'C:\Program Files (x86)\MetaTrader 4\history' }
+Write-Host "  服务端 : $Bin" -ForegroundColor DarkGray
 Write-Host "  数据   : $hist" -ForegroundColor DarkGray
 Write-Host "  访问   : http://127.0.0.1:$Port/" -ForegroundColor Cyan
 Write-Host '  停止   : Ctrl+C  (或直接关闭此窗口)' -ForegroundColor DarkGray
 Write-Host ''
 
 # ---------------------------------------------------------------- 启动
-$pyArgs = @()
-$pyArgs += $python.Pre
-$pyArgs += (Join-Path $Root 'server\app.py')
-$pyArgs += @('--port', "$Port")
-if (-not $NoOpen) { $pyArgs += '--open' }
+$serverArgs = @('--port', "$Port")
+if (-not $NoOpen) { $serverArgs += '--open' }
 
 try {
-  & $python.Exe @pyArgs
+  & $Bin @serverArgs
 } catch {
   Write-Host ''
   Write-Host "  [x] 启动失败: $($_.Exception.Message)" -ForegroundColor Red

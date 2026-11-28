@@ -1,0 +1,22 @@
+name: kline-replay
+
+services:
+  kline-replay:
+    build: .
+    image: kline-replay:local
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-8888}:8888"
+    environment:
+      # 容器内路径；宿主机目录通过下面的 volumes 挂到 /data/history
+      MT4_HISTORY: /data/history
+    volumes:
+      - type: bind
+        source: ${MT4_HISTORY_DIR:-./data/history}
+        target: /data/history
+        read_only: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true

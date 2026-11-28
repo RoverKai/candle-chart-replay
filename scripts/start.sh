@@ -21,7 +21,7 @@ K线复盘 启动器
 
 环境变量:
   MT4_HISTORY         .hst 数据目录；不设则使用本机 MT4 或仓库自带样例数据
-  PYTHON_BIN          指定 Python 解释器；不设则自动寻找 python3 / python
+  KLINE_BIN           指定服务端二进制路径（跳过自动编译）
 EOF
 }
 
@@ -65,10 +65,6 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "$SOURCE")" && pwd -P)
 ROOT_DIR=$(dirname -- "$SCRIPT_DIR")
 
 cd "$ROOT_DIR"
-
-# 控制台按 UTF-8 输出，避免中文乱码
-export PYTHONIOENCODING=utf-8
-export PYTHONUTF8=1
 
 http_health() {
   local port=$1 fd line
@@ -123,7 +119,7 @@ if http_health "$PORT"; then
   exit 0
 fi
 
-# app.py 在端口被占用时会自动向后换端口；这里提前拦住，避免提示的 URL 和实际不符
+# 服务端在端口被占用时会自动向后换端口；这里提前拦住，避免提示的 URL 和实际不符
 if port_busy "$PORT"; then
   printf '\n'
   printf '  [x] 端口 %s 已被其他程序占用\n' "$PORT"
@@ -131,72 +127,49 @@ if port_busy "$PORT"; then
   exit 1
 fi
 
-# ---------------------------------------------------------------- 找 Python
-candidates=()
-add_candidate() {
-  local exe=$1 c
-  [[ -n $exe && -x $exe ]] || return 0
-  for c in ${candidates[@]+"${candidates[@]}"}; do
-    [[ $c == "$exe" ]] && return 0
-  done
-  candidates+=("$exe")
-}
+# ---------------------------------------------------------------- 找二进制 / 编译
+BIN=${KLINE_BIN:-"$ROOT_DIR/server/target/release/kline-replay"}
+NEED_BUILD=0
 
-if [[ -n ${PYTHON_BIN:-} ]]; then
-  add_candidate "$PYTHON_BIN"
+if [[ -n ${KLINE_BIN:-} ]]; then
+  if [[ ! -x $BIN ]]; then
+    printf '\n'
+    printf '  [x] KLINE_BIN 指向的文件不存在或不可执行: %s\n' "$BIN"
+    exit 1
+  fi
+elif [[ ! -x $BIN ]]; then
+  NEED_BUILD=1
+elif command -v cargo >/dev/null 2>&1; then
+  # 源码比二进制新时自动重编，避免 git pull 后跑到旧逻辑
+  if [[ -n $(find "$ROOT_DIR/server/src" "$ROOT_DIR/server/Cargo.toml" "$ROOT_DIR/server/Cargo.lock" \
+      -newer "$BIN" -print -quit 2>/dev/null) ]]; then
+    NEED_BUILD=1
+  fi
 fi
-for name in python3 python; do
-  path=$(command -v "$name" 2>/dev/null || true)
-  [[ -n $path ]] && add_candidate "$path"
-done
-for path in \
-  /usr/bin/python3 \
-  /usr/local/bin/python3 \
-  "$HOME/.local/bin/python3" \
-  "$HOME/anaconda3/bin/python3" \
-  "$HOME/miniconda3/bin/python3" \
-  /opt/conda/bin/python3; do
-  add_candidate "$path"
-done
 
-PYTHON=""
-PY_VERSION=""
-rejected=()
-
-for exe in ${candidates[@]+"${candidates[@]}"}; do
-  # 跳过 WSL 里指向 Windows 应用商店占位程序的 python
-  resolved=$(readlink -f -- "$exe" 2>/dev/null || printf '%s' "$exe")
-  case "$resolved" in
-    */WindowsApps/*)
-      rejected+=("$exe  (Windows 应用商店占位程序)")
-      continue
-      ;;
-  esac
-
-  if ! version=$("$exe" -c 'import sys; print(sys.version.split()[0])' 2>/dev/null); then
-    rejected+=("$exe  (无法运行)")
-    continue
-  fi
-  if "$exe" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' 2>/dev/null; then
-    PYTHON=$exe
-    PY_VERSION=$version
-    break
-  fi
-  rejected+=("$exe  (Python $version，需要 3.9+)")
-done
-
-if [[ -z $PYTHON ]]; then
-  printf '\n'
-  printf '  [x] 没有找到可用的 Python 3.9+\n'
-  if ((${#rejected[@]})); then
-    printf '      已排除:\n'
-    printf '        - %s\n' "${rejected[@]}"
+if (( NEED_BUILD )); then
+  CARGO_BIN=$(command -v cargo || true)
+  if [[ -z $CARGO_BIN ]]; then
+    printf '\n'
+    printf '  [x] 找不到服务端二进制: %s\n' "$BIN"
+    printf '      需要先安装 Rust: https://rustup.rs\n'
+    printf '      安装后重新运行本脚本，会自动编译。\n'
+    exit 1
   fi
   printf '\n'
-  printf '  解决办法:\n'
-  printf '    1) 安装 Python 3.9+（Debian/Ubuntu: sudo apt install python3）\n'
-  printf '    2) 或指定解释器: PYTHON_BIN=/path/to/python3 ./scripts/start.sh\n'
+  printf '  正在编译 Rust 服务端（首次约 1-3 分钟，之后秒开）...\n'
+  if ! "$CARGO_BIN" build --release --locked --manifest-path "$ROOT_DIR/server/Cargo.toml"; then
+    printf '\n'
+    printf '  [x] Rust 服务端编译失败\n'
+    printf '      请检查 cargo 是否可用、网络能否访问 crates.io，或先手动执行:\n'
+    printf '      cargo build --release --locked --manifest-path server/Cargo.toml\n'
+    exit 1
+  fi
+fi
+
+if [[ ! -x $BIN ]]; then
   printf '\n'
+  printf '  [x] 没有找到可执行的服务端: %s\n' "$BIN"
   exit 1
 fi
 
@@ -209,16 +182,16 @@ else
 fi
 
 printf '\n'
-printf '  Python : %s   %s\n' "$PY_VERSION" "$PYTHON"
+printf '  服务端 : %s\n' "$BIN"
 printf '  数据   : %s\n' "$HISTORY_LABEL"
 printf '  访问   : http://127.0.0.1:%s/\n' "$PORT"
 printf '  停止   : Ctrl+C\n'
 printf '\n'
 
 # ---------------------------------------------------------------- 启动
-py_args=("$ROOT_DIR/server/app.py" --port "$PORT")
+run_args=(--port "$PORT")
 if (( OPEN )); then
-  py_args+=(--open)
+  run_args+=(--open)
 fi
 
-exec "$PYTHON" "${py_args[@]}"
+exec "$BIN" "${run_args[@]}"

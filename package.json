@@ -8,6 +8,7 @@
     "serve": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1 -NoOpen",
     "start:linux": "bash scripts/start.sh",
     "serve:linux": "bash scripts/start.sh --no-open",
+    "build:server": "cargo build --release --manifest-path server/Cargo.toml",
     "verify": "node tools/verify.mjs",
     "verify:ux": "node tools/verify2.mjs",
     "verify:trade": "node tools/verify3.mjs",

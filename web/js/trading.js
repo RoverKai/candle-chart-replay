@@ -633,7 +633,7 @@
       slReason: cleanReason(pos.slReason) || null,
       tpReason: cleanReason(pos.tpReason) || null,
       reason: reason,
-      exitReason: cleanReason(exitReason) || reason,
+      exitReason: cleanReason(exitReason),
       pnl: pnl
     };
     this.trades.push(trade);
@@ -710,7 +710,8 @@
   TradeBook.prototype._exitAtLevel = function (pos, kind, exitTime, exitPrice) {
     var lots = roundLots(this.levelLots(pos, kind));
     var levelReason = cleanReason(kind === 'sl' ? pos.slReason : pos.tpReason);
-    var exitReason = levelReason || LEVEL_LABEL[kind];
+    // 旧档位没有用户理由时保持空, 不能拿「止损/止盈」原因冒充平仓理由
+    var exitReason = levelReason;
     if (lots >= pos.lots - 1e-9) {
       this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind], false, exitReason);
       return;

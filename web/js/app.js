@@ -1532,7 +1532,8 @@
   function clearEntryDraft() {
     var el = $('entryReason');
     if (el) el.value = '';
-    ['slReasonInput', 'tpReasonInput'].forEach(function (id) {
+    // 价格和理由必须一起清: 只清理由会留下上一品种的止损价, 下次开仓被莫名拦截
+    ['slReasonInput', 'tpReasonInput', 'slInput', 'tpTargetInput'].forEach(function (id) {
       var n = $(id);
       if (n) { n.value = ''; clearNeed(n); }
     });
@@ -1788,7 +1789,8 @@
     parts.push('|' + book.trades.length + ':' +
       (book.trades.length ? book.trades[book.trades.length - 1].id : '') + ':' +
       (book.trades.length ? (book.trades[book.trades.length - 1].exitReason || '') : ''));
-    return parts.join(',');
+    // 理由是自由文本, 可能包含分隔符; 用 JSON 组合避免签名碰撞导致面板不重建
+    return JSON.stringify(parts);
   }
 
   /** 结构未变时只刷新浮动盈亏; DOM 与数据对不上则返回 false, 让调用方退回整块重建 */

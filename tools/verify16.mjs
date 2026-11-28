@@ -576,6 +576,60 @@ check('旧持仓平仓仍需理由并正确记录',
   st.count === 0 && st.trades.some((t) => t.exitReason === '旧仓位平仓理由'),
   JSON.stringify(st.trades));
 
+// 旧档位（有 SL 无理由）自动触发时不能拿「止损」原因冒充平仓理由
+const legacyAuto = await page.evaluate(() => {
+  const b = window.KR.book;
+  const bar = window.KR.state.bars[window.KR.state.cursor];
+  const sl = Number((bar.close - 1).toFixed(2));
+  b.restore({
+    positions: [{
+      id: 'legacy-auto-1', no: 1, dir: 1,
+      entryTime: bar.time, entryPrice: bar.close, lots: 0.1, contract: 100,
+      sl: sl, tp: null
+    }],
+    activePosId: 'legacy-auto-1', nextNo: 2, trades: [], orders: []
+  });
+  return { sl: sl };
+});
+const legacyAutoIdx = await page.evaluate((sl) => {
+  const bars = window.KR.state.bars;
+  for (let i = window.KR.state.cursor + 1; i < bars.length; i++) if (bars[i].low <= sl) return i;
+  return -1;
+}, legacyAuto.sl);
+check('找到旧档位自动触发 K 线', legacyAutoIdx > 0, String(legacyAutoIdx));
+if (legacyAutoIdx > 0) await setCursor(legacyAutoIdx);
+st = await bookState();
+const legacyAutoTrade = st.trades[st.trades.length - 1];
+check('旧档位自动触发不拿原因冒充理由',
+  legacyAutoTrade && legacyAutoTrade.reason === '止损' && legacyAutoTrade.exitReason === '',
+  JSON.stringify(legacyAutoTrade));
+check('旧档位自动触发后成交列表显示未填写理由',
+  (await page.textContent('#tradeList')).includes('平：未填写'),
+  await page.textContent('#tradeList'));
+
+// 切换周期时开仓表单的价格和理由必须一起清空，不能残留上一周期的止损价
+await page.fill('#entryReason', '切周期前理由');
+await page.fill('#slInput', '1234.56');
+await page.fill('#slReasonInput', '切周期前止损理由');
+await page.fill('#tpTargetInput', '2345.67');
+await page.fill('#tpReasonInput', '切周期前止盈理由');
+await page.click('#periodBar button[data-period="15"]');
+await page.waitForFunction(() => window.KR.state.panes[0].period === 15, { timeout: 20000 });
+await page.waitForTimeout(350);
+const periodDraft = await page.evaluate(() => ({
+  entry: document.getElementById('entryReason').value,
+  sl: document.getElementById('slInput').value,
+  slReason: document.getElementById('slReasonInput').value,
+  tp: document.getElementById('tpTargetInput').value,
+  tpReason: document.getElementById('tpReasonInput').value
+}));
+check('切换周期清空开仓表单价格和理由',
+  !periodDraft.entry && !periodDraft.sl && !periodDraft.slReason &&
+  !periodDraft.tp && !periodDraft.tpReason, JSON.stringify(periodDraft));
+await page.click('#periodBar button[data-period="5"]');
+await page.waitForFunction(() => window.KR.state.panes[0].period === 5, { timeout: 20000 });
+await page.waitForTimeout(350);
+
 /* ============================================================ 12. 多窗格理由隔离 */
 await reset();
 await page.click('#layoutSwitch button[data-layout="2"]');

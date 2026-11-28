@@ -15,3 +15,6 @@
 *.ico binary
 *.woff binary
 *.woff2 binary
+
+# Rust 锁文件保持 LF，避免 Windows checkout 后 cargo --locked 产生无关 diff
+server/Cargo.lock text eol=lf

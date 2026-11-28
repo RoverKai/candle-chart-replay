@@ -9,7 +9,7 @@
 
 **Windows**：双击 **`scripts\启动.bat`**（或在仓库根目录执行 `npm start`）。
 
-- 它会转交 `scripts/start.ps1`，自动寻找可用的 Python 3（`py -3` → `python` → 常见安装路径）
+- 它会转交 `scripts/start.ps1`；服务端是 Rust 单二进制，**首次运行会自动编译**（需要 Rust 1.87+，见 <https://rustup.rs>）
 - 已经有一个实例在跑时不会重复启动，**直接打开浏览器**
 - 浏览器打开 <http://127.0.0.1:8766/>；停止服务：`Ctrl+C` 或关掉黑窗口
 
@@ -29,11 +29,13 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1 -Port 9000
 ./scripts/start.sh --port 9000  # 换端口
 ```
 
-- 按 `PYTHON_BIN` → `python3` → `python` → 常见安装路径的顺序寻找 Python 3.9+
+- 首次运行需要本机有 `cargo`（Rust 1.87+），启动器会自动 `cargo build --release`
+- 源码比二进制新时会自动重编；也可以设 `KLINE_BIN=/path/to/kline-replay` 跳过编译
 - 已经有一个实例在跑时直接打开浏览器；端口被别的程序占用会报错，不会静默换端口
 - 首次使用如果提示没有执行权限：`chmod +x scripts/start.sh`
 
-> 只依赖 Python 3.9+，无需安装任何第三方包；前端图表库已内置在 `web/vendor/`。
+> 服务端是 Rust 单二进制（axum + tokio），没有 Python/Node 运行时依赖；
+> 前端图表库已内置在 `web/vendor/`，编译完成后离线也能用。
 
 ## 功能
 
@@ -316,12 +318,21 @@ export MT4_HISTORY="$HOME/.wine/drive_c/Program Files (x86)/MetaTrader 4/history
 
 ```powershell
 $env:MT4_HISTORY = "D:\MT4\history"
-python server/app.py --port 8766
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 ```
+
+Linux/macOS 同理：
+
+```bash
+MT4_HISTORY="$HOME/.wine/drive_c/Program Files (x86)/MetaTrader 4/history" ./scripts/start.sh
+```
+
+也可以直接给二进制传 `--history <目录>`。
 
 ### 数据更新了但页面没变？
 
-页面加载时会重新解析（服务端按文件 mtime 缓存），刷新浏览器即可。
+页面加载时会重新读取（服务端按文件 mtime/size 缓存解析结果和响应体），刷新浏览器即可。
+如果刚覆盖过文件而 mtime 没变，可以调一次 `curl http://127.0.0.1:8766/api/refresh` 清空缓存。
 
 ## 目录结构
 
@@ -329,11 +340,16 @@ python server/app.py --port 8766
 kline-replay/
 ├─ scripts/
 │  ├─ 启动.bat             Windows 一键启动
-│  ├─ start.ps1            Windows 启动器（找 Python / 开浏览器）
-│  └─ start.sh             Linux 启动器
+│  ├─ start.ps1            Windows 启动器（自动编译 / 开浏览器）
+│  └─ start.sh             Linux/macOS 启动器
 ├─ server/
-│  ├─ app.py               HTTP 服务 + JSON API
-│  └─ hst.py               .hst 二进制解析
+│  ├─ Cargo.toml           Rust crate 清单
+│  ├─ src/main.rs          CLI、路由装配、静态服务、优雅退出
+│  ├─ src/hst.rs           .hst 二进制解析与取整
+│  ├─ src/catalog.rs       账户 / 品种 / 周期发现
+│  ├─ src/api.rs           JSON API 与安全校验
+│  ├─ src/cache.rs         identity + gzip 字节缓存
+│  └─ src/config.rs        参数、目录解析、周期标签
 ├─ web/
 │  ├─ index.html
 │  ├─ css/app.css
@@ -351,6 +367,7 @@ kline-replay/
 
 > `node_modules/` 不入库：前端运行时只用 `web/vendor/` 里的内置库，
 > 只有跑 `npm run verify*` 验证脚本时才需要 `npm install`。
+> `server/target/` 是 cargo 构建产物，同样不入库。
 
 ## API
 
@@ -358,10 +375,58 @@ kline-replay/
 |---|---|
 | `GET /api/catalog` | 账户 / 品种 / 周期 / 根数 |
 | `GET /api/bars?server=&symbol=&period=` | K 线数组 `[时间, 开, 高, 低, 收, 量]` |
-| `GET /api/refresh` | 清空解析缓存 |
+| `GET /api/refresh` | 清空解析 / 响应体缓存 |
 | `GET /api/health` | 健康检查 |
 
+## 服务端开发
+
+服务端在 `server/`，是 Rust 2021 crate（axum + tokio + tower-http + serde + flate2）。
+首次运行启动器会自动编译；开发时常用：
+
+```bash
+cargo build --release --locked --manifest-path server/Cargo.toml
+cargo test --manifest-path server/Cargo.toml
+cargo clippy --manifest-path server/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path server/Cargo.toml --check
+```
+
+直接运行与调试：
+
+```bash
+./server/target/release/kline-replay --port 8766 --open
+./server/target/release/kline-replay --history /path/to/mt4/history --web-dir web
+./server/target/release/kline-replay --healthcheck 127.0.0.1:8766   # 退出码 0/1
+```
+
+- `/api/bars` 会按「文件路径 + mtime + size + digits」缓存 identity 与 gzip 响应体，
+  总上限 128MiB / 32 项；热请求约 1ms，冷请求（11 万根）约 100ms。
+- `server` / `symbol` 查询参数会先做单路径组件白名单（拒绝分隔符、`..`、绝对路径/盘符）；账户目录与 `.hst` 的软链接按用户配置跟随。
+- 静态资源由 tower-http `ServeDir` 托管，保留 `Last-Modified`/304，并对 JS/CSS/HTML 启用 gzip。
+
+## Docker
+
+仓库自带 `Dockerfile` / `compose.yaml`。镜像在 Alpine 里用 musl 构建静态二进制，运行层是
+`scratch`：非 root（10001）、只读根文件系统，healthcheck 直接调 `/api/health`。
+
+```bash
+cp .env.example .env    # 可选：改 HOST_PORT / MT4_HISTORY_DIR / BIND_ADDR
+docker compose up -d --build
+```
+
+- `MT4_HISTORY_DIR` 只读挂载到容器 `/data/history`；不设时 compose 默认 `./data/history`
+- `HOST_PORT` 是宿主机端口（容器内固定 8888）；`BIND_ADDR=0.0.0.0` 才对外开放，默认仅本机
+- 不挂载数据卷时，容器会使用镜像内 `/app/data/history` 的样例数据
+- 首次构建需要能访问 crates.io；镜像约 32 MB（含 28 MB 样例数据）
+
 ## 自动化验证
+
+服务端单元 / 契约测试（含 44/60 字节记录、取整、目录排序、路径穿越、gzip、304）：
+
+```bash
+cargo test --manifest-path server/Cargo.toml
+```
+
+前端 Playwright：
 
 ```powershell
 npm run verify       # 加载 / 回放 / 画线 / 副图 / 播放，输出 shots/
@@ -380,36 +445,44 @@ npm run verify:style # 24 项断言（样式入口、矩形配色/旧矩形同�
 npm run verify:chart-style # 37 项断言（默认外观、网格开关/颜色/线型、背景与取消回滚、K线实体/边框/影线透明度、成交量、十字光标、预设、恢复默认、刷新持久化、多窗格继承、右键入口、Esc 回滚、只改背景不重建成交量、播放中应用设置、播放中改回原色、默认图例配色、真实画布重绘、浅色 SL/TP、脏数据清洗）
 ```
 
-使用系统已安装的 Edge/Chrome（`CHANNEL=msedge` 可改），不额外下载浏览器。
+使用系统已安装的 Edge/Chrome（默认找 `msedge`，只有 Chrome 时用 `CHANNEL=chrome`），不额外下载浏览器。
 
 ## 故障排查
 
-### 双击 `scripts\启动.bat` 后弹出「你要用什么应用打开 .py 文件」
+### 提示找不到 cargo / 服务端编译失败
 
-这是启动器没能找到能用的 Python，Windows 于是把 `.py` 当普通文件去问你要用哪个程序打开。
-两个常见原因，现在都已规避：
+服务端需要 Rust 1.87+。用 <https://rustup.rs> 安装后**重新打开终端**，确认
+`cargo --version` 可用；启动器会在首次运行（或源码比二进制新）时自动编译。
 
-1. `python` 命令指向了 **Microsoft Store 的占位程序**
-   （`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`，0 字节，跑不了任何脚本）。
-   新版启动器会**主动跳过** `WindowsApps` 里的 python，并且真跑一次
-   `python -c "import sys"` 验证，只认真正能执行的解释器。
-2. 旧版 `.bat` 是 LF 换行 + UTF-8 中文，cmd.exe 解析不可靠。
-   现在 `.bat` 只做一件事：转交 PowerShell（纯 ASCII、CRLF 换行）。
-
-如果仍然报错，启动器会列出它排除了哪些路径，把那段提示发我即可。
-
-### 想指定 Python
-
-在 `scripts/start.ps1` 的 `$common` 数组里加上你的路径，或者直接命令行：
-
-```powershell
-& "D:\Conda\python.exe" server\app.py --port 8766 --open
-```
-
-Linux 用 `PYTHON_BIN` 指定：
+手动编译：
 
 ```bash
-PYTHON_BIN=/usr/bin/python3.12 ./scripts/start.sh
+cargo build --release --locked --manifest-path server/Cargo.toml
+```
+
+常见原因：
+
+1. 网络访问不了 `crates.io`：换网络/代理后重试；依赖缓存位于 `~/.cargo`。
+2. 刚 `git pull` 过，源码比二进制新，但 `cargo` 不在 PATH：重开终端。
+3. 只想跑现成二进制：用 `KLINE_BIN` 指定（见下），跳过自动编译。
+
+### 首次启动很慢
+
+首次要编译 Rust 依赖，通常 1–3 分钟；之后启动是秒开。`server/target/` 保留即可复用缓存。
+
+### 想指定现成二进制
+
+Windows：
+
+```powershell
+$env:KLINE_BIN = "D:\tools\kline-replay.exe"
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+Linux/macOS：
+
+```bash
+KLINE_BIN=/path/to/kline-replay ./scripts/start.sh
 ```
 
 ### 端口被占用
@@ -422,10 +495,10 @@ PYTHON_BIN=/usr/bin/python3.12 ./scripts/start.sh
 
 用命令行跑一遍 `powershell -ExecutionPolicy Bypass -File scripts\start.ps1`，就能看到完整报错。
 
-### Linux 提示找不到 Python 3
+### Linux 提示找不到 cargo
 
-安装 Python 3.9+（Debian/Ubuntu: `sudo apt install python3`），或者用
-`PYTHON_BIN=/path/to/python3 ./scripts/start.sh` 指定解释器。启动器会列出它排除了哪些路径。
+安装 Rust（<https://rustup.rs>）后重新运行脚本；或者用
+`KLINE_BIN=/path/to/kline-replay ./scripts/start.sh` 指定现成二进制。
 
 ## 已知限制
 

@@ -613,6 +613,8 @@
   }
 
   /** 后退时从各 series 尾部增量删除, 避免为回退一根就重建整段数据.
+      lightweight-charts 5.3 的 ISeriesApi.pop(count) 支持一次删除多个点
+      (dist/typings.d.ts: pop(count: number): TData[])。
       返回 false 表示有 series 不支持 pop (或 pop 失败), 调用方退回 setData 兜底。 */
   function panePopBars(pane, count) {
     if (count <= 0) return true;
@@ -640,7 +642,9 @@
     var prev = pane.cursor;
     var delta = Math.abs(idx - prev);
     if (prev >= 0 && idx < prev) {
-      // 回退: series.pop(k) 是 LWC 的增量删除, 代价远低于 setData(全量)
+      // 回退: series.pop(k) 是 LWC 的增量删除, 代价远低于 setData(全量)。
+      // 这里只更新 series; 图例/状态栏/交易面板/回放角标由 paneMoveTo 之后的
+      // setCutoff 统一刷新, 不需要再走一次 paneApplyAll。
       pane.cursor = idx;
       if (!panePopBars(pane, prev - idx)) paneApplyAll(pane, true);
       // 小幅回退保留视口; 大跨度回跳以新光标重新取景

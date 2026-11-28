@@ -1218,9 +1218,13 @@
       self.requestRedraw();
     }
 
-    // 时间轴变化 (拖动/缩放/程序化 setVisibleLogicalRange) 立即重绘
+    // 时间轴变化 (拖动/缩放/程序化 setVisibleLogicalRange) 立即重绘;
+    // 同时同步 last 签名, 避免紧接着的 200ms 兜底轮询再重绘一次
     try {
-      self._onTimeRangeChange = function () { self.requestRedraw(); };
+      self._onTimeRangeChange = function () {
+        self.requestRedraw();
+        last = self._viewSignature();
+      };
       this.chart.timeScale().subscribeVisibleLogicalRangeChange(self._onTimeRangeChange);
     } catch (e) { /* 老版本图表库没有该订阅时由轮询兜底 */ }
 

@@ -2437,8 +2437,10 @@
       var lotsChanged = (lots == null) !== (storedLots == null) ||
         (lots != null && storedLots != null && Math.abs(lots - storedLots) > 1e-9);
       var reasonChanged = rawReason !== storedReason;
-      // 只对本次真正设置/修改的一侧要求理由: 旧存档另一侧没有理由时不应挡住本侧应用
-      if (!rawReason && (priceChanged || lotsChanged || reasonChanged)) {
+      // 只对本次真正设置/修改的一侧要求理由: 旧存档另一侧没有理由时不应挡住本侧应用;
+      // 拖动产生的待确认档位即使各项输入看起来“未变化”也必须有理由。
+      var pendingLevel = typeof book.hasPendingLevel === 'function' && book.hasPendingLevel(levelCtx.id, k);
+      if (!rawReason && (pendingLevel || priceChanged || lotsChanged || reasonChanged)) {
         bad = { kind: k, el: reasonEl, msg: '设置' + LEVEL_LABEL[k] + '需填写' + LEVEL_LABEL[k] + '理由' };
         return;
       }

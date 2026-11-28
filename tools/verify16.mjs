@@ -292,6 +292,17 @@ st = await bookState();
 check('取消拖拽不改变止盈', st.positions[0].tp == null, JSON.stringify(st.positions[0]));
 
 await dragTagTo(c + 20);
+await page.click('#lpApply');
+await page.waitForTimeout(200);
+const blockedDrag = await page.evaluate(() => {
+  const b = window.KR.book;
+  const p = b.position;
+  return b.hasPendingLevel(p.id, 'tp');
+});
+check('拖拽后未写理由点应用被拒绝',
+  await page.locator('#levelPop').isVisible() && blockedDrag &&
+  (await page.textContent('#lpHint')).includes('止盈理由'),
+  JSON.stringify({ visible: await page.locator('#levelPop').isVisible(), pending: blockedDrag }));
 await page.fill('#lpTpReason', '拖拽止盈理由');
 await page.click('#lpApply');
 await page.waitForTimeout(350);

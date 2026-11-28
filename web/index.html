@@ -151,6 +151,10 @@
     <div class="tp-body">
       <div class="tp-block">
         <div class="tp-label">开仓 <em id="tpEntryPrice"></em></div>
+        <label class="tp-reason">
+          <span>入场理由 <em>必填</em></span>
+          <textarea id="entryReason" rows="2" maxlength="500" placeholder="例：M5 回踩趋势线不破，结构仍多"></textarea>
+        </label>
         <div class="tp-buttons">
           <button class="trade-btn buy" id="btnBuy" title="市价开多，可多次点击加仓或对冲">买入<small>做多</small></button>
           <button class="trade-btn sell" id="btnSell" title="市价开空，可多次点击加仓或对冲">卖出<small>做空</small></button>
@@ -160,6 +164,8 @@
           <label>合约<input id="contractInput" type="number" min="1" step="1" value="100"></label>
           <label>止损<input id="slInput" type="number" step="0.01" placeholder="可选"></label>
           <label>止盈<input id="tpTargetInput" type="number" step="0.01" placeholder="可选"></label>
+          <label class="wide">止损理由<input id="slReasonInput" type="text" maxlength="500" placeholder="设置止损时必填"></label>
+          <label class="wide">止盈理由<input id="tpReasonInput" type="text" maxlength="500" placeholder="设置止盈时必填"></label>
         </div>
         <label class="chk oco-row" title="勾选后：任意一张挂单成交会自动撤销其余挂单">
           <input type="checkbox" id="ocoInput"> 挂单 OCO
@@ -226,22 +232,59 @@
   </header>
   <div class="lp-body">
     <div class="lp-row" id="lpSlRow">
-      <span class="lp-kind sl">止损 <em>SL</em></span>
-      <label class="lp-field"><span>价格</span><input id="lpSlPrice" type="number" step="0.01" placeholder="未设置"></label>
-      <label class="lp-field"><span>手数</span><input id="lpSlLots" type="number" min="0.01" step="0.01" placeholder="全部"></label>
-      <button class="lp-clear" id="lpSlClear" type="button" title="取消止损">清除</button>
+      <div class="lp-line">
+        <span class="lp-kind sl">止损 <em>SL</em></span>
+        <label class="lp-field"><span>价格</span><input id="lpSlPrice" type="number" step="0.01" placeholder="未设置"></label>
+        <label class="lp-field"><span>手数</span><input id="lpSlLots" type="number" min="0.01" step="0.01" placeholder="全部"></label>
+        <button class="lp-clear" id="lpSlClear" type="button" title="取消止损">清除</button>
+      </div>
+      <label class="lp-reason">
+        <span>止损理由</span>
+        <input id="lpSlReason" type="text" maxlength="500" placeholder="设置止损时必填">
+      </label>
     </div>
     <div class="lp-row" id="lpTpRow">
-      <span class="lp-kind tp">止盈 <em>TP</em></span>
-      <label class="lp-field"><span>价格</span><input id="lpTpPrice" type="number" step="0.01" placeholder="未设置"></label>
-      <label class="lp-field"><span>手数</span><input id="lpTpLots" type="number" min="0.01" step="0.01" placeholder="全部"></label>
-      <button class="lp-clear" id="lpTpClear" type="button" title="取消止盈">清除</button>
+      <div class="lp-line">
+        <span class="lp-kind tp">止盈 <em>TP</em></span>
+        <label class="lp-field"><span>价格</span><input id="lpTpPrice" type="number" step="0.01" placeholder="未设置"></label>
+        <label class="lp-field"><span>手数</span><input id="lpTpLots" type="number" min="0.01" step="0.01" placeholder="全部"></label>
+        <button class="lp-clear" id="lpTpClear" type="button" title="取消止盈">清除</button>
+      </div>
+      <label class="lp-reason">
+        <span>止盈理由</span>
+        <input id="lpTpReason" type="text" maxlength="500" placeholder="设置止盈时必填">
+      </label>
     </div>
   </div>
   <div class="lp-tip" id="lpHint"></div>
   <footer class="lp-foot">
     <button class="lp-btn" id="lpApply" type="button">应用</button>
   </footer>
+</div>
+
+<!-- 平仓理由：面板平仓 / E / 行内 × / 右键 / 全部平仓都先经过这里 -->
+<div class="cs-backdrop reason-backdrop" id="reasonDialog" hidden>
+  <div class="cs-dialog reason-dialog" role="dialog" aria-modal="true" aria-labelledby="reasonTitle">
+    <header class="cs-head">
+      <h2 id="reasonTitle">平仓理由</h2>
+      <button class="cs-x" id="reasonClose" type="button" title="关闭" aria-label="关闭">×</button>
+    </header>
+    <div class="reason-body">
+      <div class="reason-sub" id="reasonSub"></div>
+      <div class="reason-context" id="reasonContext"></div>
+      <label class="reason-field">
+        <span>平仓理由 <em>必填</em></span>
+        <textarea id="reasonText" rows="4" maxlength="500" placeholder="例：跌破关键支撑，原有结构失效"></textarea>
+      </label>
+      <div class="reason-error" id="reasonError"></div>
+      <div class="reason-tip">Ctrl / ⌘ + Enter 确认，Esc 取消</div>
+    </div>
+    <footer class="cs-foot">
+      <span class="grow"></span>
+      <button class="cs-btn" id="reasonCancel" type="button">取消</button>
+      <button class="cs-btn primary" id="reasonConfirm" type="button">确认平仓</button>
+    </footer>
+  </div>
 </div>
 
 <!-- 图表设置 -->

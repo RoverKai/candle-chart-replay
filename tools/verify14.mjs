@@ -31,7 +31,9 @@ const bookState = () => page.evaluate(() => {
     tp: p ? p.tp : null,
     slLots: p ? p.slLots : null,
     tpLots: p ? p.tpLots : null,
-    trades: b.trades.map((t) => ({ lots: t.lots, reason: t.reason, exit: t.exitPrice, pnl: t.pnl }))
+    slReason: p ? p.slReason : null,
+    tpReason: p ? p.tpReason : null,
+    trades: b.trades.map((t) => ({ lots: t.lots, reason: t.reason, exit: t.exitPrice, pnl: t.pnl, exitReason: t.exitReason }))
   };
 });
 
@@ -82,6 +84,7 @@ const spot = await page.evaluate(() => {
 check('找到确定性上涨样本', !!spot, spot ? String(spot.i) : '');
 await page.evaluate((i) => window.KR.api.setCursor(i), spot.i);
 await page.waitForTimeout(300);
+await page.fill('#entryReason', '确定性上涨样本做多');
 await page.click('#btnBuy');
 await page.waitForTimeout(500);
 let st = await bookState();
@@ -124,6 +127,7 @@ check('面板提示自动识别结果', panel.hint.includes('已自动识别为'
 
 check('新止盈默认手数为空（全部仓位）', panel.tpLots === '', JSON.stringify({ tpLots: panel.tpLots }));
 await page.fill('#lpTpLots', '0.04');
+await page.fill('#lpTpReason', '前高阻力止盈');
 await page.click('#lpApply');
 await page.waitForTimeout(350);
 st = await bookState();
@@ -144,6 +148,7 @@ check('拖到现价下方自动识别为止损', st.sl != null && st.sl < st.clo
 check('面板自动高亮止损行', panel.slFocus === true, JSON.stringify(panel));
 check('止损面板同时显示已有止盈', panel.tpPrice !== '' && Number(panel.tpPrice) > st.close, panel.tpPrice);
 await page.fill('#lpSlLots', '0.03');
+await page.fill('#lpSlReason', '跌破支撑止损');
 await page.click('#lpApply');
 await page.waitForTimeout(350);
 st = await bookState();
@@ -199,6 +204,7 @@ check('单击成本线标签打开完整面板', panel.hidden === false && !pane
 const manualSl = st.close - 500;
 await page.fill('#lpSlPrice', String(manualSl));
 await page.fill('#lpSlLots', '0.02');
+await page.fill('#lpSlReason', '手工设置的止损理由');
 await page.click('#lpApply');
 await page.waitForTimeout(350);
 st = await bookState();
@@ -229,7 +235,7 @@ const partial = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
   const tp = b.currentClose() + 1;
-  b.setLevel(p.id, 'tp', tp, 0.04);
+  b.setLevel(p.id, 'tp', tp, 0.04, '部分止盈理由');
   return { tp, lotsBefore: p.lots };
 });
 await page.waitForTimeout(350);
@@ -294,7 +300,7 @@ const full = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
   const tp = b.currentClose() + 1;
-  b.setLevel(p.id, 'tp', tp, p.lots);
+  b.setLevel(p.id, 'tp', tp, p.lots, '整笔止盈理由');
   return { tp, lots: p.lots, id: p.id };
 });
 await page.waitForTimeout(350);
@@ -317,6 +323,7 @@ await page.evaluate(() => {
   window.KR.api.setCursor(9000);
 });
 await page.waitForTimeout(400);
+await page.fill('#entryReason', '空头方向测试理由');
 await page.click('#btnSell');
 await page.waitForTimeout(500);
 st = await bookState();
@@ -326,12 +333,14 @@ st = await bookState();
 panel = await page.evaluate(() => ({ hint: document.getElementById('lpHint').textContent }));
 check('空头拖到现价上方自动识别为止损', st.sl != null && st.tp == null, JSON.stringify({ sl: st.sl, tp: st.tp }));
 check('空头止损提示正确', panel.hint.includes('已自动识别为') && panel.hint.includes('止损'), panel.hint);
+await page.fill('#lpSlReason', '空头止损理由');
 await page.click('#lpApply');   // 应用后保留拖出的止损
 await page.waitForTimeout(300);
 await dragTag(st.close - 40);
 st = await bookState();
 check('空头拖到现价下方自动识别为止盈', st.tp != null && st.sl != null, JSON.stringify({ sl: st.sl, tp: st.tp }));
 await page.fill('#lpTpLots', '0.05');
+await page.fill('#lpTpReason', '空头止盈理由');
 await page.click('#lpApply');
 await page.waitForTimeout(350);
 st = await bookState();
@@ -365,7 +374,7 @@ const slSetup = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
   const sl = b.currentClose() + 1;
-  b.setLevel(p.id, 'sl', sl, 0.03);
+  b.setLevel(p.id, 'sl', sl, 0.03, '部分止损理由');
   return { sl, lots: p.lots };
 });
 await page.waitForTimeout(350);
@@ -389,8 +398,8 @@ const preserveSetup = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
   const c = b.currentClose();
-  b.setLevel(p.id, 'sl', c + 100, 0.02);
-  b.setLevel(p.id, 'tp', c - 100, 0.02);
+  b.setLevel(p.id, 'sl', c + 100, 0.02, '保留测试止损理由');
+  b.setLevel(p.id, 'tp', c - 100, 0.02, '保留测试止盈理由');
   window.KR.api.openLevel(p.id, 'tp');
   return { sl: c + 100, tp: c - 100 };
 });
@@ -416,7 +425,7 @@ const normSetup = await page.evaluate(() => {
   b.clear();
   window.KR.api.setCursor(12000);
   b.setLots(0.015);
-  b.open(1, { lots: 0.015, contract: 100 });
+  b.open(1, { lots: 0.015, contract: 100, entryReason: '非网格手数测试' });
   const p = b.position;
   return { bookLots: b.lots, lots: p.lots, id: p.id };
 });
@@ -427,7 +436,7 @@ const lotPartial = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
   const tp = b.currentClose() + 1;
-  b.setLevel(p.id, 'tp', tp, 0.01);
+  b.setLevel(p.id, 'tp', tp, 0.01, '非网格手数止盈理由');
   return { tp, before: p.lots };
 });
 await page.waitForTimeout(350);
@@ -464,10 +473,10 @@ if (rewriteSpot) {
     const b = window.KR.book;
     b.clear();
     window.KR.api.setCursor(spot.i);
-    b.open(1, { lots: 0.1, contract: 100 });
+    b.open(1, { lots: 0.1, contract: 100, entryReason: '档位夹紧测试' });
     const p = b.position;
-    b.setLevel(p.id, 'sl', (spot.ci + spot.cj) / 2, 0.02);
-    b.setLevel(p.id, 'tp', spot.ci + 20, 0.04);
+    b.setLevel(p.id, 'sl', (spot.ci + spot.cj) / 2, 0.02, '档位夹紧止损理由');
+    b.setLevel(p.id, 'tp', spot.ci + 20, 0.04, '档位夹紧止盈理由');
     window.KR.api.openLevel(p.id, null);
     return { id: p.id, sl: p.sl, tp: p.tp };
   }, rewriteSpot);
@@ -515,6 +524,7 @@ check('直接关闭面板会撤销这次拖动', st.tp === oldTp, JSON.stringify
 await dragTag(st.close + 35);
 st = await bookState();
 const committedTp = st.tp;
+await page.fill('#lpTpReason', '拖动后应用止盈理由');
 await page.click('#lpApply');
 await page.waitForTimeout(400);
 st = await bookState();
@@ -543,7 +553,7 @@ check('取消止损不会误写止盈', st.tp === xHit.tp, JSON.stringify({ befo
 const dragAway = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
-  b.setLevel(p.id, 'sl', b.currentClose() - 50, 0.02);
+  b.setLevel(p.id, 'sl', b.currentClose() - 50, 0.02, '取消按钮拖动测试理由');
   return { sl: p.sl };
 });
 await page.waitForTimeout(400);
@@ -597,7 +607,7 @@ const legacyPartial = await page.evaluate(() => {
   const b = window.KR.book;
   const p = b.position;
   const tp = b.currentClose() + 1;
-  b.setLevel(p.id, 'tp', tp, 0.01);
+  b.setLevel(p.id, 'tp', tp, 0.01, '非网格手数止盈理由');
   return { tp: tp, before: p.lots };
 });
 await page.waitForTimeout(350);
@@ -632,7 +642,7 @@ const legacyPartial2 = await page.evaluate(() => {
   });
   const p = b.position;
   const tp = b.currentClose() + 1;
-  b.setLevel(p.id, 'tp', tp, 0.01);
+  b.setLevel(p.id, 'tp', tp, 0.01, '非网格手数止盈理由');
   return { tp: tp, before: p.lots };
 });
 await page.waitForTimeout(350);
@@ -657,11 +667,11 @@ const partialClamp = await page.evaluate(() => {
   const b = window.KR.book;
   b.clear();
   window.KR.api.setCursor(14000);
-  b.open(1, { lots: 0.02, contract: 100 });
+  b.open(1, { lots: 0.02, contract: 100, entryReason: '部分手数夹紧测试' });
   const p = b.position;
   const close = b.currentClose();
-  b.setLevel(p.id, 'sl', close - 100, 0.02);
-  b.setLevel(p.id, 'tp', close + 1, 0.01);
+  b.setLevel(p.id, 'sl', close - 100, 0.02, '夹紧测试止损理由');
+  b.setLevel(p.id, 'tp', close + 1, 0.01, '夹紧测试止盈理由');
   window.KR.api.openLevel(p.id, 'sl');
   return { sl: p.sl, tp: p.tp, newSl: close - 50 };
 });
@@ -691,9 +701,9 @@ await page.evaluate(() => {
   const b = window.KR.book;
   b.clear();
   window.KR.api.setCursor(15000);
-  b.open(1, { lots: 0.1, contract: 100 });
+  b.open(1, { lots: 0.1, contract: 100, entryReason: '清除另一侧测试' });
   const p = b.position;
-  b.setLevel(p.id, 'sl', b.currentClose() - 100, 0.02);
+  b.setLevel(p.id, 'sl', b.currentClose() - 100, 0.02, '清除另一侧止损理由');
 });
 await page.waitForTimeout(450);
 st = await bookState();
@@ -711,7 +721,7 @@ await page.evaluate(() => {
   const b = window.KR.book;
   b.clear();
   window.KR.api.setCursor(16000);
-  b.open(1, { lots: 0.1, contract: 100 });
+  b.open(1, { lots: 0.1, contract: 100, entryReason: '程序化重开面板测试' });
 });
 await page.waitForTimeout(450);
 st = await bookState();
@@ -728,7 +738,7 @@ await page.evaluate(() => {
   const b = window.KR.book;
   b.clear();
   window.KR.api.setCursor(17000);
-  b.open(1, { lots: 0.1, contract: 100 });
+  b.open(1, { lots: 0.1, contract: 100, entryReason: '程序化重开面板测试' });
 });
 await page.waitForTimeout(450);
 st = await bookState();
@@ -746,6 +756,7 @@ await page.waitForTimeout(500);
 st = await bookState();
 check('未应用拖动档位不提前参与结算', st.count === 1 && st.tp === pendingTp,
   JSON.stringify({ count: st.count, tp: st.tp, pendingTp: pendingTp }));
+await page.fill('#lpTpReason', '未应用档位应用理由');
 await page.click('#lpApply');
 await page.waitForTimeout(400);
 st = await bookState();
@@ -756,7 +767,7 @@ await page.evaluate(() => {
   const b = window.KR.book;
   b.clear();
   window.KR.api.setCursor(18000);
-  b.open(1, { lots: 0.1, contract: 100 });
+  b.open(1, { lots: 0.1, contract: 100, entryReason: '程序化重开面板测试' });
 });
 await page.waitForTimeout(450);
 const revertPill = await page.evaluate(() => {

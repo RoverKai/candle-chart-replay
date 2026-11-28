@@ -12,6 +12,14 @@
     'tp-button': 1, 'tp-line': 1,
     'entry-line': 1
   };
+  var REASON_MAX = 500;
+
+  /** 理由统一清洗: 去首尾空白、折叠连续空白、限制长度; 全空白返回空串 */
+  function cleanReason(v) {
+    var s = v == null ? '' : String(v);
+    s = s.replace(/\s+/g, ' ').trim();
+    return s.length > REASON_MAX ? s.slice(0, REASON_MAX) : s;
+  }
 
   // 挂单: 买入限价/卖出限价/买入止损/卖出止损
   var ORDER_DIR = { buy_limit: 1, sell_limit: -1, buy_stop: 1, sell_stop: -1 };
@@ -163,15 +171,21 @@
   };
 
   /**
-   * 设置某个方向的价格与手数; 价格会自动夹到现价正确的一侧。
+   * 设置某个方向的价格、手数与理由; 价格会自动夹到现价正确的一侧。
    * lots 为 null 表示不限制, 触发时平掉全部剩余仓位。
+   * reason 为用户填写的止盈/止损理由, 必填。
    * 返回实际写入的 { price, lots }。
    */
-  TradeBook.prototype.setLevel = function (id, kind, price, lots) {
+  TradeBook.prototype.setLevel = function (id, kind, price, lots, reason) {
     var p = this._posById(id);
     if (!p || (kind !== 'sl' && kind !== 'tp')) return null;
     var value = Number(price);
     if (!isFinite(value)) return null;
+    var why = cleanReason(reason);
+    if (!why) {
+      this.onHint('设置' + LEVEL_LABEL[kind] + '需填写' + LEVEL_LABEL[kind] + '理由');
+      return null;
+    }
     value = kind === 'sl' ? this._clampStop(value, p.dir) : this._clampTarget(value, p.dir);
     value = this._roundPrice(value);
 
@@ -182,9 +196,32 @@
     if (kind === 'sl') {
       p.sl = value;
       p.slLots = lv;
+      p.slReason = why;
     } else {
       p.tp = value;
       p.tpLots = lv;
+      p.tpReason = why;
+    }
+    this.onUpdate();
+    return { price: value, lots: this.levelLots(p, kind) };
+  };
+
+  /** 拖拽预览写入: 只写价格/手数, 理由由设置面板确认; 关闭面板会回滚 */
+  TradeBook.prototype.setLevelPreview = function (id, kind, price, lots) {
+    var p = this._posById(id);
+    if (!p || (kind !== 'sl' && kind !== 'tp')) return null;
+    var value = Number(price);
+    if (!isFinite(value)) return null;
+    value = kind === 'sl' ? this._clampStop(value, p.dir) : this._clampTarget(value, p.dir);
+    value = this._roundPrice(value);
+    var parsed = parseLevelLots(lots, p.lots);
+    if (!parsed.ok) return null;
+    if (kind === 'sl') {
+      p.sl = value;
+      p.slLots = parsed.value;
+    } else {
+      p.tp = value;
+      p.tpLots = parsed.value;
     }
     this.onUpdate();
     return { price: value, lots: this.levelLots(p, kind) };
@@ -202,8 +239,23 @@
     return { price: p[kind], lots: this.levelLots(p, kind) };
   };
 
+  /** 只修改已有档位的理由 */
+  TradeBook.prototype.setLevelReason = function (id, kind, reason) {
+    var p = this._posById(id);
+    if (!p || (kind !== 'sl' && kind !== 'tp') || p[kind] == null) return null;
+    var why = cleanReason(reason);
+    if (!why) {
+      this.onHint('设置' + LEVEL_LABEL[kind] + '需填写' + LEVEL_LABEL[kind] + '理由');
+      return null;
+    }
+    if (kind === 'sl') p.slReason = why;
+    else p.tpReason = why;
+    this.onUpdate();
+    return { price: p[kind], lots: this.levelLots(p, kind) };
+  };
+
   /** 原样恢复拖动前的档位 (用于关闭设置面板时撤销这次拖动), 不再夹紧价格 */
-  TradeBook.prototype.restoreLevel = function (id, kind, price, lots) {
+  TradeBook.prototype.restoreLevel = function (id, kind, price, lots, reason) {
     var p = this._posById(id);
     if (!p || (kind !== 'sl' && kind !== 'tp')) return false;
     this.clearPendingLevel(id, kind);
@@ -211,9 +263,11 @@
     if (kind === 'sl') {
       p.sl = price != null ? price : null;
       p.slLots = price != null ? lv : null;
+      p.slReason = price != null ? (cleanReason(reason) || null) : null;
     } else {
       p.tp = price != null ? price : null;
       p.tpLots = price != null ? lv : null;
+      p.tpReason = price != null ? (cleanReason(reason) || null) : null;
     }
     this.onUpdate();
     return true;
@@ -227,9 +281,11 @@
     if (kind === 'sl') {
       p.sl = null;
       p.slLots = null;
+      p.slReason = null;
     } else {
       p.tp = null;
       p.tpLots = null;
+      p.tpReason = null;
     }
     this.clearPendingLevel(id, kind);
     this.onHint('已取消' + LEVEL_LABEL[kind] + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
@@ -238,8 +294,13 @@
   };
 
   /** 拖动写入但面板尚未确认的档位: 结算时暂时跳过, 等应用/关闭后再解除 */
-  TradeBook.prototype.setPendingLevel = function (id, kind) {
-    this._pendingLevel = id != null ? { id: id, kind: kind } : null;
+  TradeBook.prototype.setPendingLevel = function (id, kind, prevPrice, prevLots, prevReason) {
+    this._pendingLevel = id != null
+      ? {
+        id: id, kind: kind,
+        prevPrice: prevPrice, prevLots: prevLots, prevReason: prevReason || null
+      }
+      : null;
   };
 
   TradeBook.prototype.clearPendingLevel = function (id, kind) {
@@ -315,10 +376,13 @@
       entryPrice: price,
       lots: roundLots(opts.lots != null ? opts.lots : this.lots),
       contract: opts.contract != null ? opts.contract : this.contract,
+      entryReason: cleanReason(opts.entryReason),
       sl: opts.sl != null ? opts.sl : null,
       tp: opts.tp != null ? opts.tp : null,
       slLots: opts.slLots != null ? opts.slLots : null,
-      tpLots: opts.tpLots != null ? opts.tpLots : null
+      tpLots: opts.tpLots != null ? opts.tpLots : null,
+      slReason: opts.sl != null ? (cleanReason(opts.slReason) || null) : null,
+      tpReason: opts.tp != null ? (cleanReason(opts.tpReason) || null) : null
     };
   };
 
@@ -332,17 +396,38 @@
     if (!bar) return null;
 
     var opts = extra || {};
+    var entryReason = cleanReason(opts.entryReason);
+    if (!entryReason) {
+      this.onHint('请先填写入场理由');
+      return null;
+    }
+    var slReason = cleanReason(opts.slReason);
+    if (opts.sl != null && !slReason) {
+      this.onHint('设置止损需填写止损理由');
+      return null;
+    }
+    var tpReason = cleanReason(opts.tpReason);
+    if (opts.tp != null && !tpReason) {
+      this.onHint('设置止盈需填写止盈理由');
+      return null;
+    }
+
     var pos = this._newPosition(dir, bar.time, bar.close, opts);
+    pos.entryReason = entryReason;
+    if (pos.sl != null) pos.slReason = slReason;
+    if (pos.tp != null) pos.tpReason = tpReason;
     // 止损止盈方向校验
     if (pos.sl && ((dir === 1 && pos.sl >= pos.entryPrice) || (dir === -1 && pos.sl <= pos.entryPrice))) {
       this.onHint('止损价方向不对，已忽略');
       pos.sl = null;
       pos.slLots = null;
+      pos.slReason = null;
     }
     if (pos.tp && ((dir === 1 && pos.tp <= pos.entryPrice) || (dir === -1 && pos.tp >= pos.entryPrice))) {
       this.onHint('止盈价方向不对，已忽略');
       pos.tp = null;
       pos.tpLots = null;
+      pos.tpReason = null;
     }
 
     this.positions.push(pos);
@@ -353,31 +438,41 @@
     return pos;
   };
 
-  /** 平掉当前选中的持仓 (兼容旧调用: close(reason)) */
-  TradeBook.prototype.close = function (reason) {
+  /** 平掉当前选中的持仓 (兼容旧调用: close(cause, exitReason)) */
+  TradeBook.prototype.close = function (cause, exitReason) {
     var p = this.activePosition();
-    return p ? this.closePosition(p.id, reason) : null;
+    return p ? this.closePosition(p.id, cause, exitReason) : null;
   };
 
-  TradeBook.prototype.closePosition = function (id, reason) {
+  TradeBook.prototype.closePosition = function (id, cause, exitReason) {
     var pos = this._posById(id);
     if (!pos) return null;
     var idx = this.getCursor();
     var bar = this.bars[idx];
     if (!bar) return null;
-    return this._settle(pos, bar.time, bar.close, reason || '手动平仓');
+    var why = cleanReason(exitReason);
+    if (!why) {
+      this.onHint('请填写平仓理由');
+      return null;
+    }
+    return this._settle(pos, bar.time, bar.close, cause || '手动平仓', false, why);
   };
 
   /** 一次平掉全部持仓, 返回成交记录数组 */
-  TradeBook.prototype.closeAll = function (reason) {
+  TradeBook.prototype.closeAll = function (cause, exitReason) {
     if (!this.positions.length) return [];
     var idx = this.getCursor();
     var bar = this.bars[idx];
     if (!bar) return [];
+    var why = cleanReason(exitReason);
+    if (!why) {
+      this.onHint('请填写平仓理由');
+      return [];
+    }
     var closed = [];
     var list = this.positions.slice();
     for (var i = 0; i < list.length; i++) {
-      var t = this._settle(list[i], bar.time, bar.close, reason || '全部平仓', true);
+      var t = this._settle(list[i], bar.time, bar.close, cause || '全部平仓', true, why);
       if (t) closed.push(t);
     }
     // 逐笔结算时静默, 全部平完后只刷新一次面板/图表
@@ -411,14 +506,32 @@
       return null;
     }
     var opts = extra || {};
+    var entryReason = cleanReason(opts.entryReason);
+    if (!entryReason) {
+      this.onHint('请先填写入场理由');
+      return null;
+    }
+    var slReason = cleanReason(opts.slReason);
+    if (opts.sl != null && !slReason) {
+      this.onHint('设置止损需填写止损理由');
+      return null;
+    }
+    var tpReason = cleanReason(opts.tpReason);
+    if (opts.tp != null && !tpReason) {
+      this.onHint('设置止盈需填写止盈理由');
+      return null;
+    }
     var order = {
       id: uid(),
       type: type,
       price: price,
       lots: roundLots(opts.lots != null ? opts.lots : this.lots),
       contract: opts.contract != null ? opts.contract : this.contract,
+      entryReason: entryReason,
       sl: opts.sl != null ? opts.sl : null,
       tp: opts.tp != null ? opts.tp : null,
+      slReason: opts.sl != null ? slReason : null,
+      tpReason: opts.tp != null ? tpReason : null,
       oco: opts.oco != null ? !!opts.oco : this.oco,
       createdTime: this.bars[this.getCursor()] ? this.bars[this.getCursor()].time : 0
     };
@@ -470,7 +583,8 @@
       }
 
       var pos = this._newPosition(ORDER_DIR[o.type], bar.time, fill, {
-        id: o.id, lots: o.lots, contract: o.contract, sl: o.sl, tp: o.tp
+        id: o.id, lots: o.lots, contract: o.contract, entryReason: o.entryReason,
+        sl: o.sl, tp: o.tp, slReason: o.slReason, tpReason: o.tpReason
       });
       this.positions.push(pos);
       // 自动成交不抢走用户当前选中的持仓: 只有在没有选中项时才默认选中新仓
@@ -494,7 +608,7 @@
     return filled;
   };
 
-  TradeBook.prototype._settle = function (pos, exitTime, exitPrice, reason, silent) {
+  TradeBook.prototype._settle = function (pos, exitTime, exitPrice, reason, silent, exitReason) {
     var i = this._posIndex(pos.id);
     if (i < 0) return null;
     this.positions.splice(i, 1);
@@ -507,6 +621,7 @@
       dir: pos.dir,
       entryTime: pos.entryTime,
       entryPrice: pos.entryPrice,
+      entryReason: cleanReason(pos.entryReason),
       exitTime: exitTime,
       exitPrice: exitPrice,
       lots: pos.lots,
@@ -515,7 +630,10 @@
       tp: pos.tp,
       slLots: pos.slLots != null ? pos.slLots : null,
       tpLots: pos.tpLots != null ? pos.tpLots : null,
+      slReason: cleanReason(pos.slReason) || null,
+      tpReason: cleanReason(pos.tpReason) || null,
       reason: reason,
+      exitReason: cleanReason(exitReason),
       pnl: pnl
     };
     this.trades.push(trade);
@@ -591,8 +709,11 @@
    */
   TradeBook.prototype._exitAtLevel = function (pos, kind, exitTime, exitPrice) {
     var lots = roundLots(this.levelLots(pos, kind));
+    var levelReason = cleanReason(kind === 'sl' ? pos.slReason : pos.tpReason);
+    // 旧档位没有用户理由时保持空, 不能拿「止损/止盈」原因冒充平仓理由
+    var exitReason = levelReason;
     if (lots >= pos.lots - 1e-9) {
-      this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind]);
+      this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind], false, exitReason);
       return;
     }
 
@@ -602,6 +723,7 @@
       dir: pos.dir,
       entryTime: pos.entryTime,
       entryPrice: pos.entryPrice,
+      entryReason: cleanReason(pos.entryReason),
       exitTime: exitTime,
       exitPrice: exitPrice,
       lots: lots,
@@ -610,7 +732,10 @@
       tp: pos.tp,
       slLots: pos.slLots != null ? pos.slLots : null,
       tpLots: pos.tpLots != null ? pos.tpLots : null,
+      slReason: cleanReason(pos.slReason) || null,
+      tpReason: cleanReason(pos.tpReason) || null,
       reason: LEVEL_LABEL[kind],
+      exitReason: exitReason,
       pnl: this._pnl(pos, exitPrice, lots)
     };
 
@@ -618,16 +743,18 @@
     var rawRemaining = pos.lots - lots;
     if (rawRemaining < 0.01 - 1e-9) {
       // 剩余不足最小手数: 整笔平掉, 避免 0.01 下限把仓位凭空补大
-      this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind]);
+      this._settle(pos, exitTime, exitPrice, LEVEL_LABEL[kind], false, exitReason);
       return;
     }
     pos.lots = Math.round(rawRemaining * 1e6) / 1e6;
     if (kind === 'sl') {
       pos.sl = null;
       pos.slLots = null;
+      pos.slReason = null;
     } else {
       pos.tp = null;
       pos.tpLots = null;
+      pos.tpReason = null;
     }
     // 另一侧的手数不能超过剩余仓位, 否则面板上会显示一个永远平不掉的数字
     if (pos.slLots != null) pos.slLots = Math.min(pos.slLots, pos.lots);
@@ -1045,6 +1172,7 @@
         var lk = (hit.kind === 'sl-button' || hit.kind === 'sl-line') ? 'sl' : 'tp';
         this._dragMode.prevPrice = lp[lk];
         this._dragMode.prevLots = lp[lk + 'Lots'];
+        this._dragMode.prevReason = lp[lk + 'Reason'] || null;
       }
     }
 
@@ -1137,8 +1265,16 @@
 
     if (kind === 'sl-button' || kind === 'sl-line') {
       p.sl = this._roundPrice(this._clampStop(price, p.dir));
+      this.setPendingLevel(id, 'sl',
+        typeof mode === 'object' ? mode.prevPrice : undefined,
+        typeof mode === 'object' ? mode.prevLots : undefined,
+        typeof mode === 'object' ? mode.prevReason : undefined);
     } else {
       p.tp = this._roundPrice(this._clampTarget(price, p.dir));
+      this.setPendingLevel(id, 'tp',
+        typeof mode === 'object' ? mode.prevPrice : undefined,
+        typeof mode === 'object' ? mode.prevLots : undefined,
+        typeof mode === 'object' ? mode.prevReason : undefined);
     }
     this.onUpdate();
   };
@@ -1151,7 +1287,7 @@
     var id = typeof mode === 'string' ? this.activePosId : mode.id;
     var at = this._lastPointer || { x: 0, y: 0 };
     var p = this._posById(id);
-    if (!p) { this._draft = null; return; }
+    if (!p) { this._draft = null; this._pendingLevel = null; return; }
     if (kind === 'remove') {
       if (typeof mode === 'object' && !mode.moved) this.clearLevel(id, mode.levelKind);
       return;
@@ -1165,9 +1301,10 @@
         var levelKey = draft.kind;
         var prevPrice = p[levelKey];
         var prevLots = p[levelKey + 'Lots'];
-        var res = this.setLevel(id, levelKey, draft.price, prevLots);
+        var prevReason = p[levelKey + 'Reason'] || null;
+        var res = this.setLevelPreview(id, levelKey, draft.price, prevLots);
         if (res) {
-          this.setPendingLevel(id, levelKey);
+          this.setPendingLevel(id, levelKey, prevPrice, prevLots, prevReason);
           this.onHint((levelKey === 'sl' ? '已自动识别为止损' : '已自动识别为止盈') +
             ' ' + res.price.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + (p.no || '') + '）' : ''));
           // 关闭面板时若还没点应用, 用这个快照撤销这次拖动
@@ -1175,6 +1312,7 @@
             kind: levelKey,
             prevPrice: prevPrice,
             prevLots: prevLots,
+            prevReason: prevReason,
             nextPrice: p[levelKey],
             nextLots: p[levelKey + 'Lots']
           });
@@ -1190,17 +1328,23 @@
     if (typeof mode === 'object' && !mode.moved) {
       // 拖动后又拖回原点: 恢复拖动前的档位, 再按单击打开面板
       if (mode.everMoved && mode.prevPrice !== undefined) {
-        this.restoreLevel(id, levelKind, mode.prevPrice, mode.prevLots);
+        this.restoreLevel(id, levelKind, mode.prevPrice, mode.prevLots, mode.prevReason);
       }
       this.onEditLevel(id, levelKind, at.x, at.y, false);
       return;
     }
 
-    if (levelKind === 'sl') {
-      if (p.sl != null) this.onHint('止损设为 ' + p.sl.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + p.no + '）' : ''));
-    } else if (p.tp != null) {
-      this.onHint('止盈设为 ' + p.tp.toFixed(this.digits) + (this.positions.length > 1 ? '（#' + p.no + '）' : ''));
-    }
+    // 直接拖动止盈/止损线或按钮: 先按待确认档位写入, 再打开面板要求填写理由;
+    // 关闭面板会撤销这次拖动, 点应用才会真正保留。
+    this.setPendingLevel(id, levelKind, mode.prevPrice, mode.prevLots, mode.prevReason);
+    this.onEditLevel(id, levelKind, at.x, at.y, false, {
+      kind: levelKind,
+      prevPrice: mode.prevPrice,
+      prevLots: mode.prevLots,
+      prevReason: mode.prevReason,
+      nextPrice: p[levelKind],
+      nextLots: p[levelKind + 'Lots']
+    });
     this.onUpdate();
   };
 
@@ -1285,8 +1429,27 @@
   /* ------------------------------------------------------------ 持久化 */
 
   TradeBook.prototype.serialize = function () {
+    var positions = this.positions;
+    // 拖动出来但还没点「应用」的档位不落盘: 刷新后不应出现没有理由的止盈止损
+    var pending = this._pendingLevel;
+    if (pending) {
+      positions = this.positions.map(function (p) {
+        if (p.id !== pending.id) return p;
+        var copy = Object.assign({}, p);
+        if (pending.kind === 'sl') {
+          copy.sl = pending.prevPrice != null ? pending.prevPrice : null;
+          copy.slLots = pending.prevPrice != null ? pending.prevLots : null;
+          copy.slReason = pending.prevPrice != null ? (pending.prevReason || null) : null;
+        } else {
+          copy.tp = pending.prevPrice != null ? pending.prevPrice : null;
+          copy.tpLots = pending.prevPrice != null ? pending.prevLots : null;
+          copy.tpReason = pending.prevPrice != null ? (pending.prevReason || null) : null;
+        }
+        return copy;
+      });
+    }
     return {
-      positions: this.positions,
+      positions: positions,
       activePosId: this.activePosId,
       nextNo: this._nextNo,
       trades: this.trades,
@@ -1315,10 +1478,13 @@
         entryPrice: p.entryPrice,
         lots: lots,
         contract: p.contract != null ? p.contract : this.contract,
+        entryReason: cleanReason(p.entryReason),
         sl: sl,
         tp: tp,
         slLots: sl == null ? null : savedLevelLots(p.slLots, lots),
-        tpLots: tp == null ? null : savedLevelLots(p.tpLots, lots)
+        tpLots: tp == null ? null : savedLevelLots(p.tpLots, lots),
+        slReason: sl == null ? null : (cleanReason(p.slReason) || null),
+        tpReason: tp == null ? null : (cleanReason(p.tpReason) || null)
       });
     }
     this._nextNo = 1;
@@ -1328,6 +1494,14 @@
       this._nextNo = Math.max(this._nextNo, (this.positions[i].no || 0) + 1);
     }
     var restoredTrades = (d.trades || []).slice();
+    for (i = 0; i < restoredTrades.length; i++) {
+      var tr = restoredTrades[i];
+      if (!tr || typeof tr !== 'object') continue;
+      tr.entryReason = cleanReason(tr.entryReason);
+      tr.exitReason = cleanReason(tr.exitReason);
+      tr.slReason = cleanReason(tr.slReason) || null;
+      tr.tpReason = cleanReason(tr.tpReason) || null;
+    }
     // 清仓后刷新也要接着之前的成交编号, 不能只看未平仓持仓
     for (i = 0; i < restoredTrades.length; i++) {
       if (restoredTrades[i] && restoredTrades[i].no) {
@@ -1360,6 +1534,9 @@
       } else {
         order.oco = this.oco;
       }
+      order.entryReason = cleanReason(order.entryReason);
+      order.slReason = order.sl == null ? null : (cleanReason(order.slReason) || null);
+      order.tpReason = order.tp == null ? null : (cleanReason(order.tpReason) || null);
     }
     this.activePosId = d.activePosId != null && this._posIndex(d.activePosId) >= 0
       ? d.activePosId

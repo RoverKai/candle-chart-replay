@@ -58,8 +58,11 @@ async function openPos(dir, opts = {}) {
     const p = b.open(d, {
       lots: o.lots || 0.1,
       contract: 100,
+      entryReason: o.reason || '测试入场理由',
       sl: o.sl == null ? null : o.sl,
-      tp: o.tp == null ? null : o.tp
+      tp: o.tp == null ? null : o.tp,
+      slReason: o.sl == null ? null : (o.slReason || '测试止损理由'),
+      tpReason: o.tp == null ? null : (o.tpReason || '测试止盈理由')
     });
     return p ? { id: p.id, no: p.no, entry: p.entryPrice } : null;
   }, [dir, opts]);
@@ -98,10 +101,13 @@ await page.evaluate(() => window.KR.api.setCursor(8000));
 await page.waitForTimeout(350);
 await page.fill('#lotsInput', '0.1');
 await page.fill('#contractInput', '100');
+await page.fill('#entryReason', '连续开仓理由 1');
 await page.click('#btnBuy');
 await page.waitForTimeout(200);
+await page.fill('#entryReason', '连续开仓理由 2');
 await page.click('#btnBuy');
 await page.waitForTimeout(200);
+await page.fill('#entryReason', '连续开仓理由 3');
 await page.click('#btnSell');
 await page.waitForTimeout(400);
 
@@ -144,6 +150,9 @@ check('点击持仓行切换选中项', st.active === st.ids[1], `${st.active} v
 check('选中的行有高亮样式', (await page.locator('.pos-item').nth(1).getAttribute('class')).includes('active'));
 
 await page.locator('.pos-close').nth(0).click();
+await page.waitForTimeout(150);
+await page.fill('#reasonText', '行内 × 平仓理由');
+await page.click('#reasonConfirm');
 await page.waitForTimeout(350);
 st = await bookState();
 check('行内 × 只平掉这一笔', st.count === 2 && st.trades === 1, JSON.stringify({ count: st.count, trades: st.trades }));
@@ -151,11 +160,17 @@ check('平仓后选中项不变', st.active === st.ids[0], `${st.active} vs ${st
 
 await page.locator('#chartHost').click({ position: { x: 50, y: 50 } });
 await page.keyboard.press('e');
+await page.waitForTimeout(150);
+await page.fill('#reasonText', 'E 键平仓理由');
+await page.click('#reasonConfirm');
 await page.waitForTimeout(350);
 st = await bookState();
 check('E 只平掉当前选中那一笔', st.count === 1 && st.trades === 2, JSON.stringify({ count: st.count, trades: st.trades }));
 
 await page.click('#btnClosePos');
+await page.waitForTimeout(150);
+await page.fill('#reasonText', '最后一笔平仓理由');
+await page.click('#reasonConfirm');
 await page.waitForTimeout(350);
 st = await bookState();
 check('最后一笔平仓后面板清空', st.count === 0 && st.trades === 3 && st.legacyPos === null,
@@ -170,11 +185,12 @@ await page.waitForTimeout(300);
 await openPos(1);
 st = await bookState();
 const c0 = st.close;
-await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 5, { lots: 0.1, contract: 100 }), c0);
+await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 5, { lots: 0.1, contract: 100, entryReason: '测试理由' }), c0);
 await page.waitForTimeout(300);
 st = await bookState();
 check('持仓中可以挂单', st.count === 1 && st.orders === 1, JSON.stringify({ count: st.count, orders: st.orders }));
 
+await page.fill('#entryReason', '持仓期间加仓理由');
 await page.click('#btnBuy');
 await page.waitForTimeout(300);
 st = await bookState();
@@ -193,8 +209,8 @@ st = await bookState();
 const c1 = st.close;
 await page.evaluate((c) => {
   const b = window.KR.book;
-  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
-  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100, entryReason: '测试理由' });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100, entryReason: '测试理由' });
 }, c1);
 await page.waitForTimeout(300);
 st = await bookState();
@@ -216,8 +232,8 @@ check('OCO 勾选后写入 book 状态', await page.evaluate(() => window.KR.boo
 check('OCO 勾选同步到面板复选框', await page.isChecked('#ocoInput'));
 await page.evaluate((c) => {
   const b = window.KR.book;
-  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
-  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100, entryReason: '测试理由' });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100, entryReason: '测试理由' });
 }, c2);
 await page.waitForTimeout(250);
 check('OCO 两张挂单并存', (await bookState()).orders === 2);
@@ -272,6 +288,10 @@ if (btns) {
   await page.mouse.up();
   await page.waitForTimeout(400);
 }
+check('拖动非选中持仓的 SL 后打开设置面板', await page.locator('#levelPop').isVisible());
+await page.fill('#lpSlReason', '非选中持仓止损理由');
+await page.click('#lpApply');
+await page.waitForTimeout(350);
 st = await bookState();
 const ci = st.ids.indexOf(c.id);
 check('拖动非选中持仓的 SL 只改这一笔',
@@ -285,7 +305,7 @@ const hit = await page.evaluate((id) => {
 }, c.id);
 check('止损线可命中', hit === 'sl-line', String(hit));
 
-await page.evaluate(() => window.KR.api.closeAll());
+await page.evaluate(() => window.KR.api.closeAll('测试全部平仓理由'));
 await page.waitForTimeout(300);
 st = await bookState();
 check('全部平仓一次清空', st.count === 0 && st.trades >= 3, JSON.stringify({ count: st.count, trades: st.trades }));
@@ -357,8 +377,8 @@ await page.waitForTimeout(300);
 const toggleC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
 await page.evaluate((c) => {
   const b = window.KR.book;
-  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
-  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100, entryReason: '测试理由' });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100, entryReason: '测试理由' });
 }, toggleC);
 await page.waitForTimeout(250);
 let flags = await page.evaluate(() => window.KR.book.orders.map((o) => o.oco === true));
@@ -383,8 +403,8 @@ await page.waitForTimeout(300);
 const persistC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
 await page.evaluate((c) => {
   const b = window.KR.book;
-  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
-  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100, entryReason: '测试理由' });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100, entryReason: '测试理由' });
 }, persistC);
 await page.waitForTimeout(200);
 await page.evaluate(() => window.KR.book.setOco(true));
@@ -418,8 +438,8 @@ const offC = await page.evaluate(() => window.KR.state.bars[window.KR.state.curs
 await page.evaluate(() => window.KR.book.setOco(true));
 await page.evaluate((c) => {
   const b = window.KR.book;
-  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 });
-  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100, entryReason: '测试理由' });
+  b.placeOrder('buy_limit', c - 6, { lots: 0.1, contract: 100, entryReason: '测试理由' });
 }, offC);
 await page.waitForTimeout(200);
 await page.evaluate(() => window.KR.book.setOco(false));
@@ -533,7 +553,7 @@ await page.evaluate(() => window.KR.api.setCursor(14000));
 await page.waitForTimeout(300);
 await openPos(1);
 await openPos(1);
-await page.evaluate(() => window.KR.api.closeAll());
+await page.evaluate(() => window.KR.api.closeAll('测试全部平仓理由'));
 await page.waitForTimeout(700);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.KR && window.KR.state.bars.length > 0, { timeout: 20000 });
@@ -558,7 +578,7 @@ await openPos(1);
 await page.evaluate((id) => window.KR.book.setActivePosition(id), selected.id);
 await page.waitForTimeout(250);
 const fillC = await page.evaluate(() => window.KR.state.bars[window.KR.state.cursor].close);
-await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100 }), fillC);
+await page.evaluate((c) => window.KR.book.placeOrder('buy_limit', c - 2, { lots: 0.1, contract: 100, entryReason: '测试理由' }), fillC);
 await page.waitForTimeout(200);
 await jumpToLow(fillC - 2);
 await page.waitForTimeout(300);
@@ -606,7 +626,7 @@ const dragRes = await page.evaluate(([aId, y]) => {
   const other = b.positions.filter((p) => p.id !== aId)[0];
   const before = other ? other.sl : null;
   b._dragMode = { kind: 'sl-button', id: aId };
-  b.closePosition(aId, '测试');
+  b.closePosition(aId, '测试', '测试平仓理由');
   b.dragMove(300, y);
   b.dragEnd();
   return { before, after: b.positions.length ? b.positions[0].sl : null, count: b.positions.length };
@@ -626,7 +646,7 @@ const bulkClose = await page.evaluate(() => {
   let n = 0;
   const orig = b.onUpdate;
   b.onUpdate = function () { n++; return orig.apply(this, arguments); };
-  const closed = b.closeAll('测试');
+  const closed = b.closeAll('测试', '测试全部平仓理由');
   b.onUpdate = orig;
   return { n, closed: closed.length, positions: b.positions.length, trades: b.trades.length };
 });
@@ -646,7 +666,7 @@ await page.evaluate(() => window.KR.api.setCursor(window.KR.state.panes[1].bars.
 await page.waitForTimeout(400);
 await page.evaluate(() => {
   const p = window.KR.state.panes[1];
-  p.book.open(1, { lots: 0.1, contract: 100 });
+  p.book.open(1, { lots: 0.1, contract: 100, entryReason: '测试理由' });
 });
 await page.waitForTimeout(300);
 const paneCounts = await page.evaluate(() => window.KR.state.panes.map((p) => p.book.positions.length));
@@ -660,7 +680,7 @@ await resetBook();
 await page.evaluate(() => window.KR.api.setCursor(16000));
 await page.waitForTimeout(300);
 await openPos(1);
-await page.evaluate(() => { window.KR.book.close('测试'); });
+await page.evaluate(() => { window.KR.book.close('测试', '测试平仓理由'); });
 await page.waitForTimeout(300);
 const panelTradeCount0 = await page.evaluate(() => document.querySelectorAll('#tradeList .trade-item').length);
 await page.click('#layoutSwitch button[data-layout="2"]');
@@ -748,12 +768,21 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(300);
 const shot = await bookState();
-await openPos(1, { lots: 0.2, sl: shot.close - 30, tp: shot.close + 40 });
+await openPos(1, {
+  lots: 0.2, sl: shot.close - 30, tp: shot.close + 40,
+  reason: '日线支撑上方做多', slReason: '跌破日线支撑', tpReason: '前高目标'
+});
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 20));
 await page.waitForTimeout(300);
 const shot2 = await bookState();
-await openPos(1, { lots: 0.1, sl: shot2.close - 25, tp: shot2.close + 30 });
-await openPos(-1, { lots: 0.15, sl: shot2.close + 25, tp: shot2.close - 30 });
+await openPos(1, {
+  lots: 0.1, sl: shot2.close - 25, tp: shot2.close + 30,
+  reason: '回踩确认后加仓', slReason: '跌破回踩低点', tpReason: '前高减仓'
+});
+await openPos(-1, {
+  lots: 0.15, sl: shot2.close + 25, tp: shot2.close - 30,
+  reason: '反弹到阻力试空', slReason: '突破阻力止损', tpReason: '回落支撑'
+});
 await page.evaluate(() => {
   const b = window.KR.book;
   b.setActivePosition(b.positions[1].id);

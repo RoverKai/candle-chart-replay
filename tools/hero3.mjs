@@ -20,8 +20,8 @@ await page.waitForTimeout(500);
 await page.evaluate(() => {
   const b = window.KR.book;
   const c = b.currentClose();
-  b.placeOrder('buy_limit', Number((c - 12).toFixed(2)), { lots: 0.1, contract: 100 });
-  b.placeOrder('sell_limit', Number((c + 12).toFixed(2)), { lots: 0.1, contract: 100 });
+  b.placeOrder('buy_limit', Number((c - 12).toFixed(2)), { lots: 0.1, contract: 100, entryReason: '回踩支撑挂多' });
+  b.placeOrder('sell_limit', Number((c + 12).toFixed(2)), { lots: 0.1, contract: 100, entryReason: '反弹阻力挂空' });
 });
 await page.waitForTimeout(600);
 
@@ -37,7 +37,7 @@ await page.evaluate(() => {
   window.KR.api.setCursor(window.KR.state.cursor - 60);
 });
 await page.waitForTimeout(400);
-await page.evaluate(() => window.KR.api.open(1));
+await page.evaluate(() => window.KR.api.open(1, '回踩支撑做多'));
 await page.waitForTimeout(300);
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 55));
 await page.waitForTimeout(600);
@@ -49,7 +49,7 @@ await page.evaluate(() => {
   window.KR.api.setCursor(window.KR.state.cursor - 60);
 });
 await page.waitForTimeout(400);
-await page.evaluate(() => window.KR.api.open(1));
+await page.evaluate(() => window.KR.api.open(1, '回踩支撑做多'));
 await page.waitForTimeout(400);
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 45));
 await page.waitForTimeout(600);
@@ -65,6 +65,9 @@ if (btnPos) {
   await page.mouse.move(b2.x + btnPos.x, b2.y + btnPos.y + 95, { steps: 14 });
   await page.mouse.up();
   await page.waitForTimeout(500);
+  await page.fill('#lpSlReason', '跌破结构止损');
+  await page.click('#lpApply');
+  await page.waitForTimeout(400);
 }
 await page.screenshot({ path: 'shots/12-sl.png' });
 

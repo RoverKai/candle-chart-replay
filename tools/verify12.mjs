@@ -430,7 +430,10 @@ try {
   await page.evaluate(() => {
     const pane = window.KR.state.panes[0];
     const bar = pane.bars[pane.cursor];
-    pane.book.open(1, { lots: 0.1, contract: 100, sl: bar.close - 20, tp: bar.close + 20 });
+    pane.book.open(1, {
+      lots: 0.1, contract: 100, sl: bar.close - 20, tp: bar.close + 20,
+      entryReason: '样式验证入场', slReason: '样式验证止损', tpReason: '样式验证止盈'
+    });
     pane.drawLayer.requestRedraw();
   });
   // 等这次 rAF 绘制真正跑到持仓按钮上, 避免高负载下固定等待不够
@@ -470,7 +473,7 @@ try {
     JSON.stringify(lightPills));
   await page.evaluate(() => {
     const pane = window.KR.state.panes[0];
-    pane.book.close('样式验证');
+    pane.book.close('样式验证', '样式验证平仓理由');
     pane.drawLayer.requestRedraw();
   });
   await page.waitForTimeout(120);

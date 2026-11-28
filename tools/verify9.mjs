@@ -247,6 +247,31 @@ check('大幅回退后锚点不再返回 null', far.every(Boolean), JSON.stringi
 
 await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 60));
 await page.waitForTimeout(600);
+
+// 后退多根再前进一根: series.pop(count) 必须按数量删除, 不能残留未来 K 线
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor - 5));
+await page.waitForTimeout(400);
+await page.evaluate(() => window.KR.api.setCursor(window.KR.state.cursor + 1));
+await page.waitForTimeout(400);
+const popStep = await page.evaluate(() => {
+  const p = window.KR.state.panes[0];
+  const bars = window.KR.candle.data();
+  const vol = window.KR.volume.data();
+  return {
+    cursor: p.cursor,
+    barsLen: bars.length,
+    volLen: vol.length,
+    lastTime: bars.length ? bars[bars.length - 1].time : null,
+    barTime: p.bars[p.cursor] ? p.bars[p.cursor].time : null
+  };
+});
+check('后退多根再前进一根后 candle/volume 长度与游标一致',
+  popStep.barsLen === popStep.cursor + 1 && popStep.volLen === popStep.cursor + 1,
+  JSON.stringify(popStep));
+check('后退多根再前进一根后末点时间等于游标 K 线',
+  popStep.lastTime === popStep.barTime,
+  JSON.stringify(popStep));
+
 await page.screenshot({ path: 'shots/16-future-drawings.png' });
 
 console.log('通过:');

@@ -691,7 +691,20 @@
     this._tpBtn = null;
 
     if (this.showHistory) {
+      // 只画与当前视口相交的成交: 历史记录可能很多, 远离视口的线/标签画了也看不见.
+      // 取可视时间范围并留 5% 边距, 避免紧贴边缘的标签被裁掉一半.
+      var fromT = null, toT = null, pad = 0;
+      try {
+        var vr = layer.chart.timeScale().getVisibleRange();
+        if (vr && typeof vr.from === 'number' && typeof vr.to === 'number') {
+          fromT = vr.from;
+          toT = vr.to;
+          pad = Math.max(60, (toT - fromT) * 0.05);
+        }
+      } catch (e) { /* 图表尚未完成布局时不做裁剪 */ }
+
       this.trades.forEach(function (t) {
+        if (fromT !== null && (t.exitTime < fromT - pad || t.entryTime > toT + pad)) return;
         var ei = self.idxOfTime(t.entryTime);
         var xi = self.idxOfTime(t.exitTime);
         if (ei > cur || xi > cur) return;          // 未来成交不显示
